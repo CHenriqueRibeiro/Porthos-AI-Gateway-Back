@@ -1,0 +1,287 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String?
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  apiKeys   ApiKey[]
+}
+
+model ApiKey {
+  id                   String                 @id @default(uuid())
+  key                  String                 @unique
+  userId               String
+  createdAt            DateTime               @default(now())
+
+  user                 User                   @relation(fields: [userId], references: [id])
+  sessions             Session[]
+  tokenUsages          TokenUsage[]
+  providerKeys         ProviderKey[]
+  subscriptions        CustomerSubscription[]
+  semanticCaches       SemanticCache[]
+}
+
+model Session {
+  id                     String               @id @default(uuid())
+  apiKeyId               String
+  status                 String               @default("active") // active | closed | expired
+  externalConversationId String?
+  channel                String?
+  label                  String?
+  createdAt              DateTime             @default(now())
+  lastActivityAt         DateTime             @default(now())
+  endedAt                DateTime?
+  expiredAt              DateTime?
+  summary                String?
+
+  apiKey                 ApiKey               @relation(fields: [apiKeyId], references: [id])
+  messages               Message[]
+  fieldMemories          SessionFieldMemory[]
+  documentMemories       DocumentMemory[]
+
+  @@index([apiKeyId, createdAt])
+  @@index([apiKeyId, status, lastActivityAt])
+  @@index([apiKeyId, lastActivityAt])
+  @@index([apiKeyId, externalConversationId])
+  @@unique([apiKeyId, externalConversationId])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  session   Session  @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, createdAt])
+}
+
+model SessionFieldMemory {
+  id         String   @id @default(uuid())
+  sessionId  String
+  fieldName  String
+  fieldValue String
+  source     String?
+  confidence Float    @default(0.8)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  session    Session  @relation(fields: [sessionId], references: [id])
+
+  @@unique([sessionId, fieldName])
+  @@index([sessionId])
+}
+
+model DocumentMemory {
+  id                  String   @id @default(uuid())
+  sessionId           String
+  extractionProfile   String
+  schemaSignature     String
+  documentFingerprint String
+  contentHash         String
+  rawContent          String
+  normalizedContent   String
+  blocks              Json
+  extractedData       Json
+  confidenceData      Json
+  provenanceData      Json
+  llmUsed             Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  session             Session  @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, extractionProfile])
+  @@index([sessionId, documentFingerprint])
+  @@unique([sessionId, extractionProfile, schemaSignature, documentFingerprint])
+}
+
+model SemanticCache {
+  id          String   @id @default(uuid())
+  apiKeyId    String
+  fingerprint String
+  question    String
+  answer      Json
+  embedding   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiKey      ApiKey   @relation(fields: [apiKeyId], references: [id])
+
+  @@unique([apiKeyId, fingerprint])
+  @@index([apiKeyId, createdAt])
+}
+
+model TokenUsage {
+  id                         String   @id @default(uuid())
+  apiKeyId                   String
+
+  systemInputTokensOriginal  Int      @default(0)
+  systemInputTokensOptimized Int      @default(0)
+  systemResponseTokens       Int      @default(0)
+
+  llmInputTokens             Int      @default(0)
+  llmOutputTokens            Int      @default(0)
+  llmTotalTokens             Int      @default(0)
+
+  estimatedCostInput         Float    @default(0)
+  estimatedCostOutput        Float    @default(0)
+  estimatedCostTotal         Float    @default(0)
+  currency                   String?  @default("USD")
+
+  scope                      String?
+  cacheType                  String?
+  provider                   String?
+  providerModel              String?
+  keySource                  String?
+  routeType                  String?
+  workloadCategory           String?
+  createdAt                  DateTime @default(now())
+
+  apiKey                     ApiKey   @relation(fields: [apiKeyId], references: [id])
+
+  @@index([apiKeyId, createdAt])
+  @@index([apiKeyId, routeType, createdAt])
+  @@index([apiKeyId, workloadCategory, createdAt])
+  @@index([apiKeyId, keySource, createdAt])
+}
+
+model ProviderKey {
+  id                String   @id @default(uuid())
+  apiKeyId          String
+  provider          String
+  label             String?
+  encryptedKey      String
+  isDefault         Boolean  @default(true)
+  isActive          Boolean  @default(true)
+  validationStatus  String?  @default("pending")
+  validationMessage String?
+  lastValidatedAt   DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  apiKey            ApiKey   @relation(fields: [apiKeyId], references: [id])
+
+  @@index([apiKeyId, provider])
+}
+
+model ModelPricing {
+  id          String   @id @default(uuid())
+  provider    String
+  model       String
+  inputPer1k  Float
+  outputPer1k Float
+  currency    String   @default("USD")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([provider, model])
+  @@index([provider, model])
+}
+
+model SubscriptionPlan {
+  id             String              @id @default(uuid())
+  code           String              @unique
+  name           String
+  type           String
+  priceCents     Int
+  currency       String              @default("BRL")
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  featurePresets PlanFeaturePreset[]
+  subscriptions  CustomerSubscription[]
+}
+
+model PlanFeaturePreset {
+  id         String           @id @default(uuid())
+  planId     String
+  featureKey String
+  presetKey  String
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  plan       SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@unique([planId, featureKey])
+  @@index([planId])
+}
+
+model AddonCatalog {
+  id             String          @id @default(uuid())
+  code           String          @unique
+  name           String
+  featureKey     String
+  presetKey      String
+  priceCents     Int
+  currency       String          @default("BRL")
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  customerAddons CustomerAddon[]
+}
+
+model CustomerSubscription {
+  id              String                 @id @default(uuid())
+  apiKeyId        String
+  planId          String
+  status          String                 @default("active")
+  startedAt       DateTime               @default(now())
+  renewsAt        DateTime?
+  canceledAt      DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  apiKey          ApiKey                 @relation(fields: [apiKeyId], references: [id])
+  plan            SubscriptionPlan       @relation(fields: [planId], references: [id])
+  addons          CustomerAddon[]
+  overrides       CustomerConfigOverride[]
+
+  @@index([apiKeyId, status])
+}
+
+model CustomerAddon {
+  id              String               @id @default(uuid())
+  subscriptionId  String
+  addonId         String
+  isActive        Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  subscription    CustomerSubscription @relation(fields: [subscriptionId], references: [id])
+  addon           AddonCatalog         @relation(fields: [addonId], references: [id])
+
+  @@unique([subscriptionId, addonId])
+  @@index([subscriptionId])
+}
+
+model CustomerConfigOverride {
+  id              String               @id @default(uuid())
+  subscriptionId  String
+  featureKey      String
+  presetKey       String
+  isActive        Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  subscription    CustomerSubscription @relation(fields: [subscriptionId], references: [id])
+
+  @@unique([subscriptionId, featureKey])
+  @@index([subscriptionId])
+}
