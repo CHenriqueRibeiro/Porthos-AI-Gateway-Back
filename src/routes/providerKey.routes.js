@@ -1,6 +1,6 @@
 const apiKeyService = require("../services/apiKey.service")
 const providerKeyService = require("../services/providerKey.service")
-const { validateProviderKey } = require("../services/providerVAlidation.service")
+const { validateProviderKey } = require("../services/providerValidation.service")
 
 async function providerKeyRoutes(fastify) {
   fastify.get("/provider-keys", async (request, reply) => {

@@ -53,6 +53,73 @@ async function runSafe(label, fn) {
   }
 }
 
+function normalizePersistedContent(content) {
+  if (content === null || content === undefined) return ""
+  return typeof content === "string" ? content : JSON.stringify(content)
+}
+
+async function shouldPersistMessagePair({
+  sessionId,
+  userContent,
+  assistantContent
+}) {
+  const normalizedUserContent = normalizePersistedContent(userContent)
+  const normalizedAssistantContent = normalizePersistedContent(assistantContent)
+
+  const lastMessages = await prisma.message.findMany({
+    where: { sessionId },
+    orderBy: { createdAt: "desc" },
+    take: 2
+  })
+
+  if (lastMessages.length < 2) {
+    return true
+  }
+
+  const [lastAssistant, lastUser] = lastMessages
+
+  const isDuplicatePair =
+    lastAssistant?.role === "assistant" &&
+    lastUser?.role === "user" &&
+    lastUser.content === normalizedUserContent &&
+    lastAssistant.content === normalizedAssistantContent
+
+  return !isDuplicatePair
+}
+
+async function persistConversationTurnIfNeeded({
+  sessionId,
+  userContent,
+  assistantContent
+}) {
+  const normalizedUserContent = normalizePersistedContent(userContent)
+  const normalizedAssistantContent = normalizePersistedContent(assistantContent)
+
+  const shouldPersist = await shouldPersistMessagePair({
+    sessionId,
+    userContent: normalizedUserContent,
+    assistantContent: normalizedAssistantContent
+  })
+
+  if (!shouldPersist) {
+    return false
+  }
+
+  await messageService.createMessage({
+    sessionId,
+    role: "user",
+    content: normalizedUserContent
+  })
+
+  await messageService.createMessage({
+    sessionId,
+    role: "assistant",
+    content: normalizedAssistantContent
+  })
+
+  return true
+}
+
 async function saveTokenUsage({
   apiKeyId,
   originalContent,
@@ -303,16 +370,10 @@ async function sendMessage({
         }
       }
 
-      await messageService.createMessage({
+      await persistConversationTurnIfNeeded({
         sessionId,
-        role: "user",
-        content: lastUserMessage.content
-      })
-
-      await messageService.createMessage({
-        sessionId,
-        role: "assistant",
-        content: JSON.stringify(memoryResponse)
+        userContent: lastUserMessage.content,
+        assistantContent: JSON.stringify(memoryResponse)
       })
 
       await prisma.session.update({
@@ -424,16 +485,10 @@ async function sendMessage({
         }
       }
 
-      await messageService.createMessage({
+      await persistConversationTurnIfNeeded({
         sessionId,
-        role: "user",
-        content: lastUserMessage.content
-      })
-
-      await messageService.createMessage({
-        sessionId,
-        role: "assistant",
-        content: JSON.stringify(localResponse)
+        userContent: lastUserMessage.content,
+        assistantContent: JSON.stringify(localResponse)
       })
 
       await prisma.session.update({
@@ -512,16 +567,10 @@ async function sendMessage({
   if (dynamicIntent && !responseFormat && normalizedMessages.length <= 2) {
     const dynamicResponse = buildDynamicResponse(dynamicIntent)
 
-    await messageService.createMessage({
+    await persistConversationTurnIfNeeded({
       sessionId,
-      role: "user",
-      content: lastUserMessage.content
-    })
-
-    await messageService.createMessage({
-      sessionId,
-      role: "assistant",
-      content: dynamicResponse
+      userContent: lastUserMessage.content,
+      assistantContent: dynamicResponse
     })
 
     await prisma.session.update({
@@ -585,19 +634,15 @@ async function sendMessage({
       debug.redisHit = cached.source === "redis"
       debug.postgresHit = cached.source === "postgres"
 
-      await messageService.createMessage({
-        sessionId,
-        role: "user",
-        content: lastUserMessage.content
-      })
+      const cachedResponseContent =
+        typeof cached.data.answer === "string"
+          ? cached.data.answer
+          : JSON.stringify(cached.data.answer)
 
-      await messageService.createMessage({
+      await persistConversationTurnIfNeeded({
         sessionId,
-        role: "assistant",
-        content:
-          typeof cached.data.answer === "string"
-            ? cached.data.answer
-            : JSON.stringify(cached.data.answer)
+        userContent: lastUserMessage.content,
+        assistantContent: cachedResponseContent
       })
 
       await prisma.session.update({
@@ -657,19 +702,15 @@ async function sendMessage({
       debug.postgresHit = semanticMatch.source === "postgres"
       debug.similarity = semanticMatch.score
 
-      await messageService.createMessage({
-        sessionId,
-        role: "user",
-        content: lastUserMessage.content
-      })
+      const semanticResponseContent =
+        typeof semanticMatch.match.answer === "string"
+          ? semanticMatch.match.answer
+          : JSON.stringify(semanticMatch.match.answer)
 
-      await messageService.createMessage({
+      await persistConversationTurnIfNeeded({
         sessionId,
-        role: "assistant",
-        content:
-          typeof semanticMatch.match.answer === "string"
-            ? semanticMatch.match.answer
-            : JSON.stringify(semanticMatch.match.answer)
+        userContent: lastUserMessage.content,
+        assistantContent: semanticResponseContent
       })
 
       await prisma.session.update({
@@ -859,16 +900,10 @@ async function sendMessage({
   debug.currency = estimatedCost.currency
   debug.pricingFound = estimatedCost.pricingFound
 
-  await messageService.createMessage({
+  await persistConversationTurnIfNeeded({
     sessionId,
-    role: "user",
-    content: lastUserMessage.content
-  })
-
-  await messageService.createMessage({
-    sessionId,
-    role: "assistant",
-    content:
+    userContent: lastUserMessage.content,
+    assistantContent:
       typeof response === "string" ? response : JSON.stringify(response)
   })
 
