@@ -1,11 +1,7 @@
-const crypto = require("crypto")
 const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
 const prisma = require("../db/prisma")
-
-function generateApiKey() {
-  return `sk_live_${crypto.randomBytes(24).toString("hex")}`
-}
+const apiKeyService = require("./apiKey.service")
 
 function signAccessToken(user) {
   const secret = process.env.JWT_SECRET || "dev_secret_change_me"
@@ -62,7 +58,7 @@ async function registerUser({
 
     const apiKey = await tx.apiKey.create({
       data: {
-        key: generateApiKey(),
+        key: apiKeyService.generateGatewayApiKey(),
         userId: user.id
       }
     })
@@ -132,14 +128,33 @@ async function loginUser({
     throw new Error("Credenciais inválidas")
   }
 
-  const activeSubscription = await prisma.customerSubscription.findFirst({
-    where: {
-      apiKeyId: user.apiKeys?.[0]?.id || "",
-      status: "active"
-    },
-    include: {
-      plan: true
-    }
+  const apiKeyIds = (user.apiKeys || []).map((k) => k.id)
+
+  const activeSubscription =
+    apiKeyIds.length === 0
+      ? null
+      : await prisma.customerSubscription.findFirst({
+          where: {
+            apiKeyId: { in: apiKeyIds },
+            status: "active"
+          },
+          include: {
+            plan: true
+          },
+          orderBy: {
+            createdAt: "desc"
+          }
+        })
+
+  const sortedByCreatedAsc = [...(user.apiKeys || [])].sort(
+    (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+  )
+  const primaryApiKey = sortedByCreatedAsc[0]
+
+  const apiKeys = await apiKeyService.listApiKeysForUser({
+    userId: user.id,
+    currentKeyPlain: null,
+    highlightApiKeyId: primaryApiKey?.id || null
   })
 
   const accessToken = signAccessToken(user)
@@ -150,12 +165,13 @@ async function loginUser({
       name: user.name,
       email: user.email
     },
-    apiKey: user.apiKeys?.[0]
+    apiKey: primaryApiKey
       ? {
-          id: user.apiKeys[0].id,
-          key: user.apiKeys[0].key
+          id: primaryApiKey.id,
+          key: primaryApiKey.key
         }
       : null,
+    apiKeys,
     subscription: activeSubscription
       ? {
           id: activeSubscription.id,

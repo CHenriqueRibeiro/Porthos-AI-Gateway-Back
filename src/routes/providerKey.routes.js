@@ -1,29 +1,39 @@
-const apiKeyService = require("../services/apiKey.service")
 const providerKeyService = require("../services/providerKey.service")
 const { validateProviderKey } = require("../services/providerValidation.service")
+const apiKeyService = require("../services/apiKey.service")
 
 async function providerKeyRoutes(fastify) {
   fastify.get("/provider-keys", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> para escolher em qual chave gateway listar as provider keys."
         })
       }
 
-      const items = await providerKeyService.listProviderKeys(apiKeyRecord.id)
+      const items = await providerKeyService.listProviderKeys(scopedApiKeyId)
 
       return reply.send({
+        apiKeyId: scopedApiKeyId,
         items: items.map((item) => ({
           id: item.id,
           provider: item.provider,
@@ -49,19 +59,28 @@ async function providerKeyRoutes(fastify) {
 
   fastify.post("/provider-keys", async (request, reply) => {
     try {
-      const gatewayApiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!gatewayApiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(gatewayApiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> na URL."
         })
       }
 
@@ -97,7 +116,7 @@ async function providerKeyRoutes(fastify) {
       }
 
       const saved = await providerKeyService.createProviderKey({
-        apiKeyId: apiKeyRecord.id,
+        apiKeyId: scopedApiKeyId,
         provider,
         apiKey,
         label,
@@ -107,6 +126,7 @@ async function providerKeyRoutes(fastify) {
       })
 
       return reply.send({
+        apiKeyId: scopedApiKeyId,
         id: saved.id,
         provider: saved.provider,
         label: saved.label,
@@ -129,19 +149,28 @@ async function providerKeyRoutes(fastify) {
 
   fastify.patch("/provider-keys/:id/default", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> na URL."
         })
       }
 
@@ -149,10 +178,11 @@ async function providerKeyRoutes(fastify) {
 
       const updated = await providerKeyService.setDefaultProviderKey(
         id,
-        apiKeyRecord.id
+        scopedApiKeyId
       )
 
       return reply.send({
+        apiKeyId: scopedApiKeyId,
         id: updated.id,
         provider: updated.provider,
         label: updated.label,
@@ -174,28 +204,38 @@ async function providerKeyRoutes(fastify) {
 
   fastify.delete("/provider-keys/:id", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> na URL."
         })
       }
 
       const { id } = request.params
 
-      await providerKeyService.deleteProviderKey(id, apiKeyRecord.id)
+      await providerKeyService.deleteProviderKey(id, scopedApiKeyId)
 
       return reply.send({
-        success: true
+        success: true,
+        apiKeyId: scopedApiKeyId
       })
     } catch (error) {
       console.error(error)

@@ -4,27 +4,25 @@ const apiKeyService = require("../services/apiKey.service")
 async function analyticsRoutes(fastify) {
   fastify.get("/usage/:apiKeyId", async (request, reply) => {
     try {
+      const authUser = request.authUser
+
+      if (!authUser) {
+        return reply.code(401).send({
+          error: "Token de acesso obrigatório"
+        })
+      }
+
       const { apiKeyId } = request.params
       const { day, startDate, endDate, includeDaily } = request.query
-      const apiKey = request.headers["x-api-key"]
 
-      if (!apiKey) {
-        return reply.code(401).send({
-          error: "API key obrigatória"
-        })
-      }
+      const owned = await apiKeyService.assertApiKeyOwnedByUser({
+        userId: authUser.id,
+        apiKeyId
+      })
 
-      const callerKey = await apiKeyService.findApiKeyByKey(apiKey)
-
-      if (!callerKey) {
-        return reply.code(401).send({
-          error: "API key inválida"
-        })
-      }
-
-      if (callerKey.id !== apiKeyId) {
+      if (!owned) {
         return reply.code(403).send({
-          error: "Acesso não autorizado para este apiKeyId"
+          error: "API key não encontrada ou não pertence ao usuário autenticado"
         })
       }
 

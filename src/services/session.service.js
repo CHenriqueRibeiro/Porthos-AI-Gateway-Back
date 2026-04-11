@@ -41,6 +41,27 @@ async function createSession({
   })
 }
 
+async function getSessionForApiKey({ sessionId, apiKeyId }) {
+  return prisma.session.findFirst({
+    where: {
+      id: sessionId,
+      apiKeyId
+    }
+  })
+}
+
+async function getSessionWithApiKeyForUser({ sessionId, userId }) {
+  return prisma.session.findFirst({
+    where: {
+      id: sessionId,
+      apiKey: { userId }
+    },
+    include: {
+      apiKey: true
+    }
+  })
+}
+
 async function getSessionById({ sessionId, apiKeyId }) {
   return prisma.session.findFirst({
     where: {
@@ -156,6 +177,8 @@ async function expireSessionIfNeeded({ sessionId, apiKeyId }) {
 
 module.exports = {
   createSession,
+  getSessionForApiKey,
+  getSessionWithApiKeyForUser,
   getSessionById,
   listSessions,
   closeSession,

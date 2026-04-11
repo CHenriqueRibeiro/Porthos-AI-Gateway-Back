@@ -1,0 +1,514 @@
+{
+  "info": {
+    "name": "LLM Gateway API",
+    "description": "Coleção da llm-gateway-api.\n\n**Auth:** na maioria das rotas use `Authorization: Bearer {{accessToken}}` (pegue o token no login/register).\n\n**Docs:** veja `docs/API-REFERENCE.md` no repositório.\n\n**Variáveis:** `baseUrl` (ex: http://localhost:3333), `accessToken`, `apiKeyId` (UUID da linha ApiKey), `sessionId`, `adminSecret`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3333" },
+    { "key": "accessToken", "value": "" },
+    { "key": "apiKeyId", "value": "" },
+    { "key": "sessionId", "value": "" },
+    { "key": "adminSecret", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Sem autenticação",
+      "description": "Health, cadastro, login e rotas públicas. **Sem** header Bearer.",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Resposta: `status`, `service`."
+          }
+        },
+        {
+          "name": "POST Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nome\",\n  \"email\": \"user@example.com\",\n  \"password\": \"senha-segura\",\n  \"planCode\": \"flex_start\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/register",
+            "description": "**Obrigatório:** `name`, `email`, `password`, `planCode` (código de plano ativo no banco)."
+          }
+        },
+        {
+          "name": "POST Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"senha-segura\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login",
+            "description": "**Obrigatório:** `email`, `password`. Copie `auth.accessToken` para a variável `accessToken`."
+          }
+        },
+        {
+          "name": "GET Public plans",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/public/plans"
+          }
+        },
+        {
+          "name": "POST Public simulate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planCode\": \"flex_start\",\n  \"addonCodes\": [],\n  \"overrides\": {}\n}"
+            },
+            "url": "{{baseUrl}}/public/plans/simulate",
+            "description": "**Obrigatório:** `planCode`. Opcionais: `addonCodes`, `overrides`."
+          }
+        },
+        {
+          "name": "POST Public recommend",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estimatedRequestsPerMonth\": 1000,\n  \"wantsManaged\": false,\n  \"wantsAdvancedRetention\": false,\n  \"wantsLargerSemanticBase\": false\n}"
+            },
+            "url": "{{baseUrl}}/public/plans/recommend"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth (JWT)",
+      "description": "Bearer obrigatório.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "POST Logout",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Keys",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "GET Listar API keys",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/apikeys?highlightApiKeyId={{apiKeyId}}",
+            "description": "Query opcional: `highlightApiKeyId` (UUID) para marcar `isCurrent` na lista."
+          }
+        },
+        {
+          "name": "POST Criar API key",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/apikeys",
+            "description": "Sem body. Cria chave para o usuário do token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sessões e mensagens",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "POST Criar sessão",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiKeyId\": \"{{apiKeyId}}\",\n  \"externalConversationId\": null,\n  \"channel\": null,\n  \"label\": null\n}"
+            },
+            "url": "{{baseUrl}}/sessions",
+            "description": "`apiKeyId` opcional (omitir ou null = chave gateway mais antiga). Opcionais: `externalConversationId`, `channel`, `label`."
+          }
+        },
+        {
+          "name": "GET Listar sessões",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/sessions?page=1&pageSize=20&apiKeyId={{apiKeyId}}",
+            "description": "Query: `page`, `pageSize`, `status`, `apiKeyId` (opc.)."
+          }
+        },
+        {
+          "name": "GET Sessão por id",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/sessions/{{sessionId}}"
+          }
+        },
+        {
+          "name": "POST Encerrar sessão",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/sessions/{{sessionId}}/close"
+          }
+        },
+        {
+          "name": "POST Criar mensagem",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"role\": \"user\",\n  \"content\": \"Olá\"\n}"
+            },
+            "url": "{{baseUrl}}/messages",
+            "description": "**Obrigatório:** `sessionId`, `role`, `content`. Sessão deve ser sua."
+          }
+        },
+        {
+          "name": "GET Mensagens da sessão",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/sessions/{{sessionId}}/messages"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat e Extract",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "POST Chat",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"model\": \"openai/gpt-4o-mini\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Responda em uma frase.\" }\n  ],\n  \"temperature\": 0.2,\n  \"max_tokens\": 300\n}"
+            },
+            "url": "{{baseUrl}}/chat",
+            "description": "**Obrigatório:** `sessionId`, `messages` com ao menos um `user` com `content`. `role`: system | user | assistant. Opcionais: `model`, `temperature`, `max_tokens`."
+          }
+        },
+        {
+          "name": "POST Extract (JSON)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"model\": \"openai/gpt-4o-mini\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Extraia: nome e data.\" }\n  ],\n  \"response_format\": { \"type\": \"json_object\" },\n  \"extraction_profile\": \"generic_document\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 500\n}"
+            },
+            "url": "{{baseUrl}}/extract",
+            "description": "**Obrigatório:** `sessionId`, `messages`, `response_format`. Tipos: `json_object` ou `json_schema` (com `json_schema.name` e `json_schema.schema`)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "GET Uso por apiKeyId",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/usage/{{apiKeyId}}?includeDaily=true",
+            "description": "Path: UUID da linha `ApiKey` **do seu usuário**. Query opcional: `day`, `startDate`, `endDate`, `includeDaily`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider keys",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "GET Listar",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/provider-keys?apiKeyId={{apiKeyId}}",
+            "description": "Query opcional `apiKeyId` (gateway); default = chave mais antiga."
+          }
+        },
+        {
+          "name": "POST Criar",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"openai\",\n  \"apiKey\": \"sk-...\",\n  \"label\": \"minha conta\",\n  \"isDefault\": true\n}"
+            },
+            "url": "{{baseUrl}}/provider-keys?apiKeyId={{apiKeyId}}",
+            "description": "**Obrigatório:** `provider` (openai|anthropic|gemini), `apiKey` (segredo do provedor). Query `apiKeyId` opcional."
+          }
+        },
+        {
+          "name": "PATCH Definir default",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "PATCH",
+            "url": "{{baseUrl}}/provider-keys/PROVIDER_KEY_UUID/default?apiKeyId={{apiKeyId}}"
+          }
+        },
+        {
+          "name": "DELETE Remover",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/provider-keys/PROVIDER_KEY_UUID?apiKeyId={{apiKeyId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Billing",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "POST Seed catálogo",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/billing/seed"
+          }
+        },
+        {
+          "name": "GET Planos e addons",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/plans"
+          }
+        },
+        {
+          "name": "GET Assinatura atual",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/subscriptions/current?apiKeyId={{apiKeyId}}",
+            "description": "Query `apiKeyId` opcional."
+          }
+        },
+        {
+          "name": "POST Criar/trocar assinatura",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planCode\": \"flex_start\",\n  \"addonCodes\": []\n}"
+            },
+            "url": "{{baseUrl}}/subscriptions?apiKeyId={{apiKeyId}}",
+            "description": "**Obrigatório:** `planCode`. Opcional: `addonCodes`. Query `apiKeyId` opcional."
+          }
+        },
+        {
+          "name": "POST Override de feature",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"featureKey\": \"cache_inteligente\",\n  \"presetKey\": \"ttl_48h\"\n}"
+            },
+            "url": "{{baseUrl}}/subscriptions/override?apiKeyId={{apiKeyId}}",
+            "description": "Valores de feature/preset dependem do `billingCatalog`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Model pricing",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "GET Listar",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/model-pricing"
+          }
+        },
+        {
+          "name": "POST Upsert",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"openai\",\n  \"model\": \"gpt-4o-mini\",\n  \"inputPer1k\": 0.15,\n  \"outputPer1k\": 0.6,\n  \"currency\": \"USD\",\n  \"isActive\": true\n}"
+            },
+            "url": "{{baseUrl}}/model-pricing",
+            "description": "**Obrigatório:** `provider`, `model`, `inputPer1k`, `outputPer1k` (números)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users (legado)",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "POST Criar usuário",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"outro@example.com\",\n  \"name\": \"Nome\"\n}"
+            },
+            "url": "{{baseUrl}}/users"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "**Sem** Bearer. Header `x-admin-secret`.",
+      "item": [
+        {
+          "name": "POST Manutenção global",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "x-admin-secret", "value": "{{adminSecret}}" }
+            ],
+            "url": "{{baseUrl}}/admin/maintenance/run",
+            "description": "Requer `ADMIN_MAINTENANCE_SECRET` no servidor."
+          }
+        }
+      ]
+    }
+  ]
+}

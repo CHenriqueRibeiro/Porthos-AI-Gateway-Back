@@ -12,12 +12,14 @@ const extractRoutes = require("./routes/extract.routes")
 const publicSimulator = require("./routes/publicSimulator.routes")
 const adminMaintenanceRoutes = require("./routes/adminMaintenance.routes")
 const authRoutes = require("./routes/auth.routes")
-
+const { gatewayAuthOnRequest } = require("./middleware/gatewayAuth.middleware")
 
 function buildApp() {
   const fastify = Fastify({
     logger: true
   })
+
+  fastify.addHook("onRequest", gatewayAuthOnRequest)
 
   fastify.get("/health", async () => {
     return {

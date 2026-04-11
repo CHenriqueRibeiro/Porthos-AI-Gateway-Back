@@ -4,19 +4,29 @@ const apiKeyService = require("../services/apiKey.service")
 async function sessionsRoutes(fastify) {
   fastify.post("/sessions", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const body = request.body || {}
+      const apiKeyIdInput =
+        typeof body.apiKeyId === "string" && body.apiKeyId.trim()
+          ? body.apiKeyId.trim()
+          : null
+
+      const apiKeyRecord = await apiKeyService.getFullApiKeyForUserScoped({
+        userId: authUser.id,
+        apiKeyId: apiKeyIdInput
+      })
 
       if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+        return reply.code(400).send({
+          error: "Nenhuma API key válida ou apiKeyId não pertence ao usuário",
+          hint: "Passe apiKeyId no body ou use a chave gateway padrão (mais antiga)."
         })
       }
 
@@ -24,7 +34,7 @@ async function sessionsRoutes(fastify) {
         externalConversationId = null,
         channel = null,
         label = null
-      } = request.body || {}
+      } = body
 
       const session = await sessionService.createSession({
         apiKeyId: apiKeyRecord.id,
@@ -46,23 +56,33 @@ async function sessionsRoutes(fastify) {
 
   fastify.get("/sessions", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { page = 1, pageSize = 20, status = null, apiKeyId: apiKeyIdQuery } =
+        request.query || {}
+
+      const apiKeyId =
+        typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+          ? apiKeyIdQuery.trim()
+          : null
+
+      const apiKeyRecord = await apiKeyService.getFullApiKeyForUserScoped({
+        userId: authUser.id,
+        apiKeyId
+      })
 
       if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+        return reply.code(400).send({
+          error: "Nenhuma API key válida ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> ou omita para a chave gateway padrão."
         })
       }
-
-      const { page = 1, pageSize = 20, status = null } = request.query || {}
 
       const sessions = await sessionService.listSessions({
         apiKeyId: apiKeyRecord.id,
@@ -84,34 +104,31 @@ async function sessionsRoutes(fastify) {
 
   fastify.get("/sessions/:id", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
-        })
-      }
-
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
-
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+          error: "Token de acesso obrigatório"
         })
       }
 
       const { id } = request.params
 
-      const session = await sessionService.getSessionById({
+      const scoped = await sessionService.getSessionWithApiKeyForUser({
         sessionId: id,
-        apiKeyId: apiKeyRecord.id
+        userId: authUser.id
       })
 
-      if (!session) {
+      if (!scoped) {
         return reply.code(404).send({
           error: "Sessão não encontrada"
         })
       }
+
+      const session = await sessionService.getSessionById({
+        sessionId: id,
+        apiKeyId: scoped.apiKeyId
+      })
 
       return reply.send(session)
     } catch (error) {
@@ -126,27 +143,30 @@ async function sessionsRoutes(fastify) {
 
   fastify.post("/sessions/:id/close", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
-        })
-      }
-
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
-
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+          error: "Token de acesso obrigatório"
         })
       }
 
       const { id } = request.params
 
+      const scoped = await sessionService.getSessionWithApiKeyForUser({
+        sessionId: id,
+        userId: authUser.id
+      })
+
+      if (!scoped) {
+        return reply.code(404).send({
+          error: "Sessão não encontrada"
+        })
+      }
+
       const session = await sessionService.closeSession({
         sessionId: id,
-        apiKeyId: apiKeyRecord.id
+        apiKeyId: scoped.apiKeyId
       })
 
       return reply.send(session)

@@ -1,18 +1,29 @@
+# Requer .env.production na mesma pasta (segredos; não commitar).
+# Opcional: `docker compose --env-file .env.production up -d` se usar variáveis no host.
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: porthos_postgres
     restart: unless-stopped
+    env_file:
+      - .env.production
     environment:
       POSTGRES_DB: porthos_gateway
       POSTGRES_USER: porthos
-      POSTGRES_PASSWORD: Guitarra0Natan123
+      # POSTGRES_PASSWORD: obrigatório dentro do .env.production
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - porthos_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U porthos -d porthos_gateway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
@@ -24,6 +35,11 @@ services:
       - redis_data:/data
     networks:
       - porthos_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   app:
     build:
@@ -32,8 +48,10 @@ services:
     container_name: porthos_app
     restart: unless-stopped
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env.production
     ports:

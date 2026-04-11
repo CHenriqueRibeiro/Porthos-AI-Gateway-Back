@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "seed:billing": "node src/scripts/seedBillingCatalog.js",
+    "seed:pricing": "node src/scripts/seedPricing.js"
   },
   "keywords": [],
   "author": "",

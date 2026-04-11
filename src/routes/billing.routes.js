@@ -1,11 +1,19 @@
-const apiKeyService = require("../services/apiKey.service")
 const billingCatalogService = require("../services/billingCatalog.service")
 const subscriptionService = require("../services/subscription.service")
 const { resolveEffectiveConfig } = require("../services/billingConfig.service")
+const apiKeyService = require("../services/apiKey.service")
 
 async function billingRoutes(fastify) {
   fastify.post("/billing/seed", async (request, reply) => {
     try {
+      const authUser = request.authUser
+
+      if (!authUser) {
+        return reply.code(401).send({
+          error: "Token de acesso obrigatório"
+        })
+      }
+
       const result = await billingCatalogService.seedPlansAndAddons()
       return reply.send(result)
     } catch (error) {
@@ -19,6 +27,14 @@ async function billingRoutes(fastify) {
 
   fastify.get("/plans", async (request, reply) => {
     try {
+      const authUser = request.authUser
+
+      if (!authUser) {
+        return reply.code(401).send({
+          error: "Token de acesso obrigatório"
+        })
+      }
+
       const plans = await billingCatalogService.listPlans()
       const addons = await billingCatalogService.listAddons()
 
@@ -37,35 +53,46 @@ async function billingRoutes(fastify) {
 
   fastify.get("/subscriptions/current", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> para escolher qual chave gateway (opcional: usa a mais antiga)."
         })
       }
 
       const subscription =
-        await subscriptionService.getActiveSubscriptionByApiKeyId(apiKeyRecord.id)
+        await subscriptionService.getActiveSubscriptionByApiKeyId(scopedApiKeyId)
 
       if (!subscription) {
         return reply.send({
           subscription: null,
-          effectiveConfig: null
+          effectiveConfig: null,
+          apiKeyId: scopedApiKeyId
         })
       }
 
       return reply.send({
         subscription,
-        effectiveConfig: resolveEffectiveConfig(subscription)
+        effectiveConfig: resolveEffectiveConfig(subscription),
+        apiKeyId: scopedApiKeyId
       })
     } catch (error) {
       console.error(error)
@@ -78,19 +105,28 @@ async function billingRoutes(fastify) {
 
   fastify.post("/subscriptions", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> na URL."
         })
       }
 
@@ -106,14 +142,15 @@ async function billingRoutes(fastify) {
       }
 
       const subscription = await subscriptionService.createOrReplaceSubscription({
-        apiKeyId: apiKeyRecord.id,
+        apiKeyId: scopedApiKeyId,
         planCode,
         addonCodes
       })
 
       return reply.send({
         subscription,
-        effectiveConfig: resolveEffectiveConfig(subscription)
+        effectiveConfig: resolveEffectiveConfig(subscription),
+        apiKeyId: scopedApiKeyId
       })
     } catch (error) {
       console.error(error)
@@ -126,24 +163,33 @@ async function billingRoutes(fastify) {
 
   fastify.post("/subscriptions/override", async (request, reply) => {
     try {
-      const apiKey = request.headers["x-api-key"]
+      const authUser = request.authUser
 
-      if (!apiKey) {
+      if (!authUser) {
         return reply.code(401).send({
-          error: "API key obrigatória"
+          error: "Token de acesso obrigatório"
         })
       }
 
-      const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+      const { apiKeyId: apiKeyIdQuery } = request.query || {}
 
-      if (!apiKeyRecord) {
-        return reply.code(401).send({
-          error: "API key inválida"
+      const scopedApiKeyId = await apiKeyService.resolveAccountScopedApiKeyId({
+        userId: authUser.id,
+        apiKeyId:
+          typeof apiKeyIdQuery === "string" && apiKeyIdQuery.trim()
+            ? apiKeyIdQuery.trim()
+            : null
+      })
+
+      if (!scopedApiKeyId) {
+        return reply.code(400).send({
+          error: "Nenhuma API key no usuário ou apiKeyId inválido",
+          hint: "Use ?apiKeyId=<uuid> na URL."
         })
       }
 
       const subscription =
-        await subscriptionService.getActiveSubscriptionByApiKeyId(apiKeyRecord.id)
+        await subscriptionService.getActiveSubscriptionByApiKeyId(scopedApiKeyId)
 
       if (!subscription) {
         return reply.code(404).send({
@@ -169,11 +215,12 @@ async function billingRoutes(fastify) {
       })
 
       const updated =
-        await subscriptionService.getActiveSubscriptionByApiKeyId(apiKeyRecord.id)
+        await subscriptionService.getActiveSubscriptionByApiKeyId(scopedApiKeyId)
 
       return reply.send({
         subscription: updated,
-        effectiveConfig: resolveEffectiveConfig(updated)
+        effectiveConfig: resolveEffectiveConfig(updated),
+        apiKeyId: scopedApiKeyId
       })
     } catch (error) {
       console.error(error)

@@ -1,5 +1,15 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.production
+.env.local
+.env.*.local
+
+# Arquivos acidentais (não são o npm CLI)
+npm
+npx
+
+# Windows
+desktop.ini
 
 /src/generated/prisma

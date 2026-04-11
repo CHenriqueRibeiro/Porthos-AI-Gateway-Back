@@ -1,5 +1,4 @@
 const redis = require("../db/redis")
-const apiKeyService = require("../services/apiKey.service")
 const { getRuntimePolicyForApiKey } = require("../services/subscriptionRuntime.service")
 const { classifyWorkload } = require("../services/requestWorkload.service")
 
@@ -32,16 +31,10 @@ async function getOrLoadRuntime(request) {
     }
   }
 
-  const apiKey = request.headers["x-api-key"]
-
-  if (!apiKey) {
-    throw new Error("API key obrigatória")
-  }
-
-  const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+  const apiKeyRecord = request.apiKeyRecord
 
   if (!apiKeyRecord) {
-    throw new Error("API key inválida")
+    throw new Error("Contexto da chave gateway não resolvido")
   }
 
   const { runtimePolicy, effectiveConfig } =

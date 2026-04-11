@@ -3,6 +3,14 @@ const modelPricingService = require("../services/modelPricing.service")
 async function modelPricingRoutes(fastify) {
   fastify.get("/model-pricing", async (request, reply) => {
     try {
+      const authUser = request.authUser
+
+      if (!authUser) {
+        return reply.code(401).send({
+          error: "Token de acesso obrigatório"
+        })
+      }
+
       const items = await modelPricingService.listModelPricing()
 
       return reply.send({
@@ -20,6 +28,14 @@ async function modelPricingRoutes(fastify) {
 
   fastify.post("/model-pricing", async (request, reply) => {
     try {
+      const authUser = request.authUser
+
+      if (!authUser) {
+        return reply.code(401).send({
+          error: "Token de acesso obrigatório"
+        })
+      }
+
       const {
         provider,
         model,

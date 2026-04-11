@@ -1,5 +1,4 @@
 const redis = require("../db/redis")
-const apiKeyService = require("../services/apiKey.service")
 const { getRuntimePolicyForApiKey } = require("../services/subscriptionRuntime.service")
 
 function buildRateLimitKey(apiKeyId, routeKey, bucket) {
@@ -32,19 +31,12 @@ async function incrementWindowCounter({
 }
 
 async function rateLimitByApiKey(request, reply) {
-  const apiKey = request.headers["x-api-key"]
-
-  if (!apiKey) {
-    return reply.code(401).send({
-      error: "API key obrigatória"
-    })
-  }
-
-  const apiKeyRecord = await apiKeyService.findApiKeyByKey(apiKey)
+  const apiKeyRecord = request.apiKeyRecord
 
   if (!apiKeyRecord) {
     return reply.code(401).send({
-      error: "API key inválida"
+      error: "Contexto da chave gateway não resolvido",
+      hint: "Envie JWT válido e sessionId no corpo; a sessão deve pertencer ao seu usuário."
     })
   }
 

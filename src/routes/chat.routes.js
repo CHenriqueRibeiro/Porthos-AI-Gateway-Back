@@ -1,13 +1,18 @@
 const chatService = require("../services/chat.service")
 const { rateLimitByApiKey } = require("../middleware/rateLimit.middleware")
 const { concurrencyGuard } = require("../middleware/concurrency.middleware")
+const { attachGatewayKeyFromSessionBody } = require("../middleware/jwtSdkContext.middleware")
 const { normalizeMessages, getLastUserMessage } = require("../services/requestContext.service")
 
 async function chatRoutes(fastify) {
   fastify.post(
     "/chat",
     {
-      preHandler: [rateLimitByApiKey, concurrencyGuard]
+      preHandler: [
+        attachGatewayKeyFromSessionBody,
+        rateLimitByApiKey,
+        concurrencyGuard
+      ]
     },
     async (request, reply) => {
       try {
@@ -15,7 +20,7 @@ async function chatRoutes(fastify) {
 
         if (!apiKeyRecord) {
           return reply.code(401).send({
-            error: "API key inválida"
+            error: "Não foi possível resolver a chave gateway da sessão"
           })
         }
 
