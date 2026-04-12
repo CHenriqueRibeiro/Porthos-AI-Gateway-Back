@@ -3,8 +3,8 @@ const apiKeyService = require("../services/apiKey.service")
 async function apiKeysRoutes(fastify) {
   fastify.get("/apikeys", async (request, reply) => {
     try {
+      
       const authUser = request.authUser
-
       if (!authUser) {
         return reply.code(401).send({
           error: "Token de acesso obrigatório"

@@ -13,6 +13,7 @@ const publicSimulator = require("./routes/publicSimulator.routes")
 const adminMaintenanceRoutes = require("./routes/adminMaintenance.routes")
 const authRoutes = require("./routes/auth.routes")
 const { gatewayAuthOnRequest } = require("./middleware/gatewayAuth.middleware")
+const dashboardRoutes = require("./routes/dashboard.routes")
 
 function buildApp() {
   const fastify = Fastify({
@@ -41,7 +42,7 @@ function buildApp() {
   fastify.register(adminMaintenanceRoutes)
   fastify.register(extractRoutes)
   fastify.register(authRoutes)
-
+  fastify.register(dashboardRoutes)
   return fastify
 }
 

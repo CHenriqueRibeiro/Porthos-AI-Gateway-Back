@@ -618,12 +618,13 @@ async function sendMessage({
     })
   }
 
-  const cacheKey = conversationSignature
+  const fingerprintCacheKey = conversationSignature
+  const semanticCacheKey = optimizedContent
 
   if (scope === "global") {
     const cached = await fingerprintService.findCachedAnswer(
       apiKeyId,
-      cacheKey,
+      fingerprintCacheKey,
       responseFormat
     )
 
@@ -691,7 +692,7 @@ async function sendMessage({
 
     const semanticMatch = await semanticCacheService.findSemanticMatch(
       apiKeyId,
-      cacheKey,
+      semanticCacheKey,
       responseFormat
     )
 
@@ -721,7 +722,7 @@ async function sendMessage({
       await runSafe("save fingerprint from semantic", () =>
         fingerprintService.saveCachedAnswer(
           apiKeyId,
-          cacheKey,
+          fingerprintCacheKey,
           semanticMatch.match.answer,
           responseFormat,
           {
@@ -952,7 +953,7 @@ async function sendMessage({
     await runSafe("saveCachedAnswer llm", () =>
       fingerprintService.saveCachedAnswer(
         apiKeyId,
-        cacheKey,
+        fingerprintCacheKey,
         response,
         responseFormat,
         {
@@ -964,7 +965,7 @@ async function sendMessage({
     await runSafe("saveSemanticCache llm", () =>
       semanticCacheService.saveSemanticCache(
         apiKeyId,
-        cacheKey,
+        semanticCacheKey,
         response,
         responseFormat,
         {

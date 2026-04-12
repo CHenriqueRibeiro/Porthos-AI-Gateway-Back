@@ -5,8 +5,10 @@ const { createFingerprint } = require("../utils/fingerprint")
 const crypto = require("crypto")
 
 function buildQuestionKey(cacheKey, responseFormat = null) {
+  const baseText = String(cacheKey || "").trim()
+
   if (!responseFormat) {
-    return cacheKey
+    return baseText
   }
 
   const signature = crypto
@@ -14,7 +16,18 @@ function buildQuestionKey(cacheKey, responseFormat = null) {
     .update(JSON.stringify(responseFormat))
     .digest("hex")
 
-  return `${cacheKey}::${signature}`
+  return `${baseText}::${signature}`
+}
+
+function normalizeSemanticText(text = "") {
+  return String(text)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\bm2\b/g, "2002")
+    .replace(/[^\w\s:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
 function buildRedisKey(apiKeyId, fingerprint) {
@@ -28,7 +41,8 @@ async function saveSemanticCache(
   responseFormat = null,
   options = {}
 ) {
-  const questionKey = buildQuestionKey(cacheKey, responseFormat)
+  const rawQuestionKey = buildQuestionKey(cacheKey, responseFormat)
+  const questionKey = normalizeSemanticText(rawQuestionKey)
   const embedding = await generateEmbedding(questionKey)
   const fingerprint = createFingerprint(questionKey)
 
@@ -73,9 +87,10 @@ async function findSemanticMatch(
   apiKeyId,
   cacheKey,
   responseFormat = null,
-  threshold = 0.86
+  threshold = 0.83
 ) {
-  const questionKey = buildQuestionKey(cacheKey, responseFormat)
+  const rawQuestionKey = buildQuestionKey(cacheKey, responseFormat)
+  const questionKey = normalizeSemanticText(rawQuestionKey)
   const questionEmbedding = await generateEmbedding(questionKey)
 
   const entries = await prisma.semanticCache.findMany({

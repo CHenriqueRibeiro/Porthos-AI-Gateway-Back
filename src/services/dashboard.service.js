@@ -79,42 +79,30 @@ function buildGroupedCostMap(items, field) {
         providerInputTokens: 0,
         providerOutputTokens: 0,
         providerTotalTokens: 0,
-        cachedInputTokensAvoided: 0,
-        cachedOutputTokensAvoided: 0,
-        cachedTotalTokensAvoided: 0,
         estimatedCostInput: 0,
         estimatedCostOutput: 0,
-        estimatedCostTotal: 0,
-        estimatedCostAvoided: 0
+        estimatedCostTotal: 0
       }
     }
 
     result[key].totalRequests += 1
-
     result[key].providerInputTokens += item.llmInputTokens || 0
     result[key].providerOutputTokens += item.llmOutputTokens || 0
     result[key].providerTotalTokens += item.llmTotalTokens || 0
-
-    result[key].cachedInputTokensAvoided += item.cacheReferenceInputTokens || 0
-    result[key].cachedOutputTokensAvoided += item.cacheReferenceOutputTokens || 0
-    result[key].cachedTotalTokensAvoided += item.cacheReferenceTotalTokens || 0
-
     result[key].estimatedCostInput += item.estimatedCostInput || 0
     result[key].estimatedCostOutput += item.estimatedCostOutput || 0
     result[key].estimatedCostTotal += item.estimatedCostTotal || 0
-    result[key].estimatedCostAvoided += item.estimatedCostAvoided || 0
   }
 
   return Object.values(result).map((item) => ({
     ...item,
     estimatedCostInput: roundMoney(item.estimatedCostInput),
     estimatedCostOutput: roundMoney(item.estimatedCostOutput),
-    estimatedCostTotal: roundMoney(item.estimatedCostTotal),
-    estimatedCostAvoided: roundMoney(item.estimatedCostAvoided)
+    estimatedCostTotal: roundMoney(item.estimatedCostTotal)
   }))
 }
 
-async function getUsageByApiKey(apiKeyId, filters = {}) {
+async function getDashboardOverviewByUser(userId, filters = {}) {
   const { day, startDate, endDate, includeDaily = "false" } = filters
 
   let period
@@ -127,9 +115,65 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
     period = getDefaultPeriod()
   }
 
+  const apiKeys = await prisma.apiKey.findMany({
+    where: { userId },
+    select: { id: true, createdAt: true }
+  })
+
+  if (!apiKeys.length) {
+    return {
+      period: {
+        startDate: formatDay(period.start),
+        endDate: formatDay(period.end)
+      },
+      plan: null,
+      summary: {
+        totalRequests: 0,
+        requestsSentToLlm: 0,
+        requestsServedWithoutLlm: 0,
+        requestsServedWithoutLlmRate: 0,
+        inputTokensBeforeOptimization: 0,
+        inputTokensSent: 0,
+        inputTokensSaved: 0,
+        outputTokensReturnedByGateway: 0,
+        providerInputTokens: 0,
+        providerOutputTokens: 0,
+        providerTotalTokens: 0,
+        estimatedCostInput: 0,
+        estimatedCostOutput: 0,
+        estimatedCostTotal: 0,
+        currency: "USD"
+      },
+      cache: {
+        fingerprintHits: 0,
+        semanticHits: 0,
+        localHits: 0
+      },
+      breakdowns: {
+        byCacheType: {
+          llm: 0,
+          fingerprint: 0,
+          semantic: 0,
+          local: 0
+        },
+        byProvider: [],
+        byModel: [],
+        byKeySource: [],
+        byScope: [],
+        byRouteType: [],
+        byWorkload: []
+      },
+      apiKeys: []
+    }
+  }
+
+  const apiKeyIds = apiKeys.map((item) => item.id)
+
   const usages = await prisma.tokenUsage.findMany({
     where: {
-      apiKeyId,
+      apiKeyId: {
+        in: apiKeyIds
+      },
       createdAt: {
         gte: period.start,
         lte: period.end
@@ -138,37 +182,44 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
     orderBy: { createdAt: "desc" }
   })
 
-  const activeSubscription =
-    await subscriptionService.getActiveSubscriptionByApiKeyId(apiKeyId)
-
-  const effectiveConfig = resolveEffectiveConfig(activeSubscription)
+  const activeSubscriptions = await prisma.customerSubscription.findMany({
+    where: {
+      apiKeyId: {
+        in: apiKeyIds
+      },
+      status: "active"
+    },
+    include: {
+      plan: true,
+      addons: {
+        where: { isActive: true },
+        include: {
+          addon: true
+        }
+      },
+      overrides: {
+        where: { isActive: true }
+      }
+    },
+    orderBy: { createdAt: "desc" }
+  })
 
   const summaryRaw = usages.reduce(
     (acc, item) => {
       const cacheType = item.cacheType || "llm"
 
       acc.totalRequests += 1
+      acc.inputTokensBeforeOptimization += item.systemInputTokensOriginal || 0
+      acc.inputTokensSent += item.systemInputTokensOptimized || 0
+      acc.outputTokensReturnedByGateway += item.systemResponseTokens || 0
 
-      // Gateway/internal
-      acc.gatewayInputTokensOriginal += item.systemInputTokensOriginal || 0
-      acc.gatewayInputTokensOptimized += item.systemInputTokensOptimized || 0
-      acc.gatewayResponseTokens += item.systemResponseTokens || 0
-
-      // Provider real
       acc.providerInputTokens += item.llmInputTokens || 0
       acc.providerOutputTokens += item.llmOutputTokens || 0
       acc.providerTotalTokens += item.llmTotalTokens || 0
 
-      // Cache avoided based on original real request
-      acc.cachedInputTokensAvoided += item.cacheReferenceInputTokens || 0
-      acc.cachedOutputTokensAvoided += item.cacheReferenceOutputTokens || 0
-      acc.cachedTotalTokensAvoided += item.cacheReferenceTotalTokens || 0
-
-      // Cost
       acc.estimatedCostInput += item.estimatedCostInput || 0
       acc.estimatedCostOutput += item.estimatedCostOutput || 0
       acc.estimatedCostTotal += item.estimatedCostTotal || 0
-      acc.estimatedCostAvoided += item.estimatedCostAvoided || 0
 
       if (cacheType === "fingerprint") acc.fingerprintHits += 1
       if (cacheType === "semantic") acc.semanticHits += 1
@@ -179,24 +230,15 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
     },
     {
       totalRequests: 0,
-
-      gatewayInputTokensOriginal: 0,
-      gatewayInputTokensOptimized: 0,
-      gatewayResponseTokens: 0,
-
+      inputTokensBeforeOptimization: 0,
+      inputTokensSent: 0,
+      outputTokensReturnedByGateway: 0,
       providerInputTokens: 0,
       providerOutputTokens: 0,
       providerTotalTokens: 0,
-
-      cachedInputTokensAvoided: 0,
-      cachedOutputTokensAvoided: 0,
-      cachedTotalTokensAvoided: 0,
-
       estimatedCostInput: 0,
       estimatedCostOutput: 0,
       estimatedCostTotal: 0,
-      estimatedCostAvoided: 0,
-
       currency: "USD",
       fingerprintHits: 0,
       semanticHits: 0,
@@ -208,12 +250,6 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
   const requestsServedWithoutLlm =
     summaryRaw.fingerprintHits + summaryRaw.semanticHits + summaryRaw.localHits
 
-  const realInputTokensBeforeOptimization =
-    summaryRaw.providerInputTokens + summaryRaw.cachedInputTokensAvoided
-
-  const realOutputTokensReturnedByGateway =
-    summaryRaw.providerOutputTokens + summaryRaw.cachedOutputTokensAvoided
-
   const summary = {
     totalRequests: summaryRaw.totalRequests,
     requestsSentToLlm: summaryRaw.requestsSentToLlm,
@@ -224,40 +260,17 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
             ((requestsServedWithoutLlm / summaryRaw.totalRequests) * 100).toFixed(2)
           )
         : 0,
-
-    // Mantidos com os mesmos nomes para o front
-    // Agora representam dados reais:
-    // - inputTokensBeforeOptimization = tokens reais que seriam gastos sem cache
-    // - inputTokensSent = tokens reais realmente enviados à LLM
-    // - inputTokensSaved = tokens reais evitados por cache/memória
-    inputTokensBeforeOptimization: realInputTokensBeforeOptimization,
-    inputTokensSent: summaryRaw.providerInputTokens,
-    inputTokensSaved: summaryRaw.cachedInputTokensAvoided,
-
-    // Mantido com o mesmo nome para o front
-    // Agora representa saída real entregue pelo gateway
-    outputTokensReturnedByGateway: realOutputTokensReturnedByGateway,
-
+    inputTokensBeforeOptimization: summaryRaw.inputTokensBeforeOptimization,
+    inputTokensSent: summaryRaw.inputTokensSent,
+    inputTokensSaved:
+      summaryRaw.inputTokensBeforeOptimization - summaryRaw.inputTokensSent,
+    outputTokensReturnedByGateway: summaryRaw.outputTokensReturnedByGateway,
     providerInputTokens: summaryRaw.providerInputTokens,
     providerOutputTokens: summaryRaw.providerOutputTokens,
     providerTotalTokens: summaryRaw.providerTotalTokens,
-
-    cachedInputTokensAvoided: summaryRaw.cachedInputTokensAvoided,
-    cachedOutputTokensAvoided: summaryRaw.cachedOutputTokensAvoided,
-    cachedTotalTokensAvoided: summaryRaw.cachedTotalTokensAvoided,
-
-    gatewayInputTokensOriginal: summaryRaw.gatewayInputTokensOriginal,
-    gatewayInputTokensOptimized: summaryRaw.gatewayInputTokensOptimized,
-    gatewayInputTokensSaved: Math.max(
-      0,
-      summaryRaw.gatewayInputTokensOriginal - summaryRaw.gatewayInputTokensOptimized
-    ),
-    gatewayResponseTokens: summaryRaw.gatewayResponseTokens,
-
     estimatedCostInput: roundMoney(summaryRaw.estimatedCostInput),
     estimatedCostOutput: roundMoney(summaryRaw.estimatedCostOutput),
     estimatedCostTotal: roundMoney(summaryRaw.estimatedCostTotal),
-    estimatedCostAvoided: roundMoney(summaryRaw.estimatedCostAvoided),
     currency: "USD"
   }
 
@@ -267,20 +280,26 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
     localHits: summaryRaw.localHits
   }
 
+  const plans = activeSubscriptions.map((subscription) => {
+    const effectiveConfig = resolveEffectiveConfig(subscription)
+
+    return {
+      apiKeyId: subscription.apiKeyId,
+      subscriptionId: subscription.id,
+      code: subscription.plan.code,
+      name: subscription.plan.name,
+      type: subscription.plan.type,
+      monthlyPrice: effectiveConfig?.pricing?.totalPrice || null,
+      addons: effectiveConfig?.addons || []
+    }
+  })
+
   const response = {
     period: {
       startDate: formatDay(period.start),
       endDate: formatDay(period.end)
     },
-    plan: activeSubscription
-      ? {
-          code: activeSubscription.plan.code,
-          name: activeSubscription.plan.name,
-          type: activeSubscription.plan.type,
-          monthlyPrice: effectiveConfig?.pricing?.totalPrice || null,
-          addons: effectiveConfig?.addons || []
-        }
-      : null,
+    plan: plans,
     summary,
     cache,
     breakdowns: {
@@ -296,7 +315,11 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
       byScope: buildGroupedCostMap(usages, "scope"),
       byRouteType: buildGroupedCostMap(usages, "routeType"),
       byWorkload: buildGroupedCostMap(usages, "workloadCategory")
-    }
+    },
+    apiKeys: apiKeys.map((item) => ({
+      id: item.id,
+      createdAt: item.createdAt
+    }))
   }
 
   if (includeDaily === "true") {
@@ -312,47 +335,23 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
           totalRequests: 0,
           requestsSentToLlm: 0,
           requestsServedWithoutLlm: 0,
-
-          // Mantidos para o front
           inputTokensBeforeOptimization: 0,
           inputTokensSent: 0,
           inputTokensSaved: 0,
-          outputTokensReturnedByGateway: 0,
-
           providerInputTokens: 0,
           providerOutputTokens: 0,
           providerTotalTokens: 0,
-
-          cachedInputTokensAvoided: 0,
-          cachedOutputTokensAvoided: 0,
-          cachedTotalTokensAvoided: 0,
-
-          gatewayInputTokensOriginal: 0,
-          gatewayInputTokensOptimized: 0,
-          gatewayInputTokensSaved: 0,
-          gatewayResponseTokens: 0,
-
-          estimatedCostTotal: 0,
-          estimatedCostAvoided: 0
+          estimatedCostTotal: 0
         }
       }
 
       dailyMap[dayKey].totalRequests += 1
-
-      dailyMap[dayKey].gatewayInputTokensOriginal += item.systemInputTokensOriginal || 0
-      dailyMap[dayKey].gatewayInputTokensOptimized += item.systemInputTokensOptimized || 0
-      dailyMap[dayKey].gatewayResponseTokens += item.systemResponseTokens || 0
-
+      dailyMap[dayKey].inputTokensBeforeOptimization += item.systemInputTokensOriginal || 0
+      dailyMap[dayKey].inputTokensSent += item.systemInputTokensOptimized || 0
       dailyMap[dayKey].providerInputTokens += item.llmInputTokens || 0
       dailyMap[dayKey].providerOutputTokens += item.llmOutputTokens || 0
       dailyMap[dayKey].providerTotalTokens += item.llmTotalTokens || 0
-
-      dailyMap[dayKey].cachedInputTokensAvoided += item.cacheReferenceInputTokens || 0
-      dailyMap[dayKey].cachedOutputTokensAvoided += item.cacheReferenceOutputTokens || 0
-      dailyMap[dayKey].cachedTotalTokensAvoided += item.cacheReferenceTotalTokens || 0
-
       dailyMap[dayKey].estimatedCostTotal += item.estimatedCostTotal || 0
-      dailyMap[dayKey].estimatedCostAvoided += item.estimatedCostAvoided || 0
 
       if (cacheType === "llm") {
         dailyMap[dayKey].requestsSentToLlm += 1
@@ -361,35 +360,16 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
       }
     }
 
-    response.daily = Object.values(dailyMap).map((item) => {
-      const inputTokensBeforeOptimization =
-        item.providerInputTokens + item.cachedInputTokensAvoided
-
-      const inputTokensSent = item.providerInputTokens
-      const inputTokensSaved = item.cachedInputTokensAvoided
-
-      const outputTokensReturnedByGateway =
-        item.providerOutputTokens + item.cachedOutputTokensAvoided
-
-      return {
-        ...item,
-        inputTokensBeforeOptimization,
-        inputTokensSent,
-        inputTokensSaved,
-        outputTokensReturnedByGateway,
-        gatewayInputTokensSaved: Math.max(
-          0,
-          item.gatewayInputTokensOriginal - item.gatewayInputTokensOptimized
-        ),
-        estimatedCostTotal: roundMoney(item.estimatedCostTotal),
-        estimatedCostAvoided: roundMoney(item.estimatedCostAvoided)
-      }
-    })
+    response.daily = Object.values(dailyMap).map((item) => ({
+      ...item,
+      inputTokensSaved: item.inputTokensBeforeOptimization - item.inputTokensSent,
+      estimatedCostTotal: roundMoney(item.estimatedCostTotal)
+    }))
   }
 
   return response
 }
 
 module.exports = {
-  getUsageByApiKey
+  getDashboardOverviewByUser
 }

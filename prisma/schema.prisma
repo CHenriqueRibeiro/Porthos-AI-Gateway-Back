@@ -35,7 +35,7 @@ model ApiKey {
 model Session {
   id                     String               @id @default(uuid())
   apiKeyId               String
-  status                 String               @default("active") // active | closed | expired
+  status                 String               @default("active")
   externalConversationId String?
   channel                String?
   label                  String?
@@ -137,9 +137,16 @@ model TokenUsage {
   llmOutputTokens            Int      @default(0)
   llmTotalTokens             Int      @default(0)
 
+  // Tokens reais evitados por cache/memória,
+  // copiados da resposta original que seria reutilizada
+  cacheReferenceInputTokens  Int      @default(0)
+  cacheReferenceOutputTokens Int      @default(0)
+  cacheReferenceTotalTokens  Int      @default(0)
+
   estimatedCostInput         Float    @default(0)
   estimatedCostOutput        Float    @default(0)
   estimatedCostTotal         Float    @default(0)
+  estimatedCostAvoided       Float    @default(0)
   currency                   String?  @default("USD")
 
   scope                      String?

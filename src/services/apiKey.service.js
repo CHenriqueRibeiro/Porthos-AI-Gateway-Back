@@ -7,7 +7,6 @@ function generateGatewayApiKey() {
 
 async function createApiKey({ userId }) {
   const apiKey = generateGatewayApiKey()
-
   return prisma.apiKey.create({
     data: {
       key: apiKey,
