@@ -20,6 +20,13 @@ function buildApp() {
     logger: true
   })
 
+  // Register CORS plugin
+  fastify.register(require('@fastify/cors'), {
+    origin: true, // Allow all origins for development; adjust for production
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  })
+
   fastify.addHook("onRequest", gatewayAuthOnRequest)
 
   fastify.get("/health", async () => {
