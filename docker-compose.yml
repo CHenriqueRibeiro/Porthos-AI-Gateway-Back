@@ -68,8 +68,10 @@ services:
       - app
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     networks:
       - porthos_network
 
