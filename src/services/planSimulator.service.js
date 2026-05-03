@@ -95,27 +95,37 @@ function recommendPlan({
   wantsAdvancedRetention = false,
   wantsLargerSemanticBase = false
 }) {
+  const requests = Number(estimatedRequestsPerMonth) || 0
+
   if (wantsManaged) {
     if (
-      estimatedRequestsPerMonth > 20000 ||
+      requests > 20000 ||
       wantsAdvancedRetention ||
       wantsLargerSemanticBase
     ) {
-      return "prime_pro"
+      return "scale"
     }
 
-    return "prime_start"
+    return "pro"
   }
 
   if (
-    estimatedRequestsPerMonth > 20000 ||
+    requests > 20000 ||
     wantsAdvancedRetention ||
     wantsLargerSemanticBase
   ) {
-    return "flex_pro"
+    return "pro"
   }
 
-  return "flex_start"
+  if (requests > 5000) {
+    return "growth"
+  }
+
+  if (requests > 0) {
+    return "starter"
+  }
+
+  return "free"
 }
 
 module.exports = {
