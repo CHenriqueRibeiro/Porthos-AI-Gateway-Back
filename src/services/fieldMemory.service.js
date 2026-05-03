@@ -1,4 +1,7 @@
+const crypto = require("crypto")
 const prisma = require("../db/prisma")
+const { schemaSql } = require("./tenantSchema.service")
+const { getTenantSchemaBySessionId } = require("./tenantData.service")
 
 const MEMORY_FIELDS = new Set([
   "nome",
@@ -61,42 +64,50 @@ async function pruneSessionFieldMemory({
   retentionDays = 30,
   maxItems = 500
 }) {
+  const schemaName = await getTenantSchemaBySessionId(sessionId)
+  if (!schemaName) return
+
+  const schema = schemaSql(schemaName)
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - retentionDays)
 
-  await prisma.sessionFieldMemory.deleteMany({
-    where: {
-      sessionId,
-      updatedAt: {
-        lt: cutoff
-      }
-    }
-  })
+  await prisma.$executeRaw`
+    DELETE FROM ${schema}.session_field_memories
+    WHERE session_id = ${sessionId}
+      AND updated_at < ${cutoff}
+  `
 
-  const items = await prisma.sessionFieldMemory.findMany({
-    where: { sessionId },
-    orderBy: {
-      updatedAt: "desc"
-    }
-  })
+  const items = await prisma.$queryRaw`
+    SELECT id
+    FROM ${schema}.session_field_memories
+    WHERE session_id = ${sessionId}
+    ORDER BY updated_at DESC
+  `
 
   if (items.length > maxItems) {
     const toDelete = items.slice(maxItems)
 
-    await prisma.sessionFieldMemory.deleteMany({
-      where: {
-        id: {
-          in: toDelete.map((item) => item.id)
-        }
-      }
-    })
+    await prisma.$executeRaw`
+      DELETE FROM ${schema}.session_field_memories
+      WHERE id = ANY(${toDelete.map((item) => item.id)})
+    `
   }
 }
 
 async function getSessionFieldMemory(sessionId) {
-  const items = await prisma.sessionFieldMemory.findMany({
-    where: { sessionId }
-  })
+  const schemaName = await getTenantSchemaBySessionId(sessionId)
+  if (!schemaName) return {}
+
+  const schema = schemaSql(schemaName)
+  const items = await prisma.$queryRaw`
+    SELECT
+      field_name AS "fieldName",
+      field_value AS "fieldValue",
+      source,
+      confidence
+    FROM ${schema}.session_field_memories
+    WHERE session_id = ${sessionId}
+  `
 
   const map = {}
 
@@ -121,28 +132,40 @@ async function upsertSessionFieldMemory({
 }) {
   const normalized = normalizeMemoryInput(fields)
   const entries = Object.entries(normalized)
+  const schemaName = await getTenantSchemaBySessionId(sessionId)
+  if (!schemaName) return normalized
+
+  const schema = schemaSql(schemaName)
 
   for (const [fieldName, fieldValue] of entries) {
-    await prisma.sessionFieldMemory.upsert({
-      where: {
-        sessionId_fieldName: {
-          sessionId,
-          fieldName
-        }
-      },
-      update: {
-        fieldValue,
+    await prisma.$executeRaw`
+      INSERT INTO ${schema}.session_field_memories (
+        id,
+        session_id,
+        field_name,
+        field_value,
         source,
-        confidence: defaultConfidence
-      },
-      create: {
-        sessionId,
-        fieldName,
-        fieldValue,
-        source,
-        confidence: defaultConfidence
-      }
-    })
+        confidence,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${crypto.randomUUID()},
+        ${sessionId},
+        ${fieldName},
+        ${fieldValue},
+        ${source},
+        ${defaultConfidence},
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (session_id, field_name)
+      DO UPDATE SET
+        field_value = EXCLUDED.field_value,
+        source = EXCLUDED.source,
+        confidence = EXCLUDED.confidence,
+        updated_at = NOW()
+    `
   }
 
   await pruneSessionFieldMemory({

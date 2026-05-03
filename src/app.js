@@ -29,6 +29,15 @@ function buildApp() {
 
   fastify.addHook("onRequest", gatewayAuthOnRequest)
 
+  fastify.setErrorHandler((error, request, reply) => {
+    request.log.error(error)
+
+    return reply.code(error.statusCode || 500).send({
+      error: "Erro interno no gateway",
+      details: error.message
+    })
+  })
+
   fastify.get("/health", async () => {
     return {
       status: "ok",

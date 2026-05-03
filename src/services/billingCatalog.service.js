@@ -5,6 +5,28 @@ const {
 } = require("../config/billingCatalog")
 
 async function seedPlansAndAddons() {
+  await prisma.subscriptionPlan.updateMany({
+    where: {
+      code: {
+        notIn: DEFAULT_PLANS.map((plan) => plan.code)
+      }
+    },
+    data: {
+      isActive: false
+    }
+  })
+
+  await prisma.addonCatalog.updateMany({
+    where: {
+      code: {
+        notIn: DEFAULT_ADDONS.map((addon) => addon.code)
+      }
+    },
+    data: {
+      isActive: false
+    }
+  })
+
   for (const plan of DEFAULT_PLANS) {
     const savedPlan = await prisma.subscriptionPlan.upsert({
       where: { code: plan.code },

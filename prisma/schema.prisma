@@ -16,116 +16,44 @@ model User {
   updatedAt DateTime @updatedAt
 
   apiKeys   ApiKey[]
+  tenants   Tenant[]
+}
+
+model Tenant {
+  id         String   @id @default(uuid())
+  ownerId    String
+  slug       String   @unique
+  name       String?
+  schemaName String   @unique
+  status     String   @default("active")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  owner      User     @relation(fields: [ownerId], references: [id])
+  apiKeys    ApiKey[]
+
+  @@index([ownerId])
 }
 
 model ApiKey {
   id                   String                 @id @default(uuid())
   key                  String                 @unique
   userId               String
+  tenantId             String?
   createdAt            DateTime               @default(now())
 
   user                 User                   @relation(fields: [userId], references: [id])
-  sessions             Session[]
-  tokenUsages          TokenUsage[]
-  providerKeys         ProviderKey[]
+  tenant               Tenant?                @relation(fields: [tenantId], references: [id])
   subscriptions        CustomerSubscription[]
-  semanticCaches       SemanticCache[]
+
+  @@index([tenantId])
 }
 
-model Session {
-  id                     String               @id @default(uuid())
-  apiKeyId               String
-  status                 String               @default("active")
-  externalConversationId String?
-  channel                String?
-  label                  String?
-  createdAt              DateTime             @default(now())
-  lastActivityAt         DateTime             @default(now())
-  endedAt                DateTime?
-  expiredAt              DateTime?
-  summary                String?
-
-  apiKey                 ApiKey               @relation(fields: [apiKeyId], references: [id])
-  messages               Message[]
-  fieldMemories          SessionFieldMemory[]
-  documentMemories       DocumentMemory[]
-
-  @@index([apiKeyId, createdAt])
-  @@index([apiKeyId, status, lastActivityAt])
-  @@index([apiKeyId, lastActivityAt])
-  @@index([apiKeyId, externalConversationId])
-  @@unique([apiKeyId, externalConversationId])
-}
-
-model Message {
-  id        String   @id @default(uuid())
-  sessionId String
-  role      String
-  content   String
-  createdAt DateTime @default(now())
-
-  session   Session  @relation(fields: [sessionId], references: [id])
-
-  @@index([sessionId, createdAt])
-}
-
-model SessionFieldMemory {
-  id         String   @id @default(uuid())
-  sessionId  String
-  fieldName  String
-  fieldValue String
-  source     String?
-  confidence Float    @default(0.8)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  session    Session  @relation(fields: [sessionId], references: [id])
-
-  @@unique([sessionId, fieldName])
-  @@index([sessionId])
-}
-
-model DocumentMemory {
-  id                  String   @id @default(uuid())
-  sessionId           String
-  extractionProfile   String
-  schemaSignature     String
-  documentFingerprint String
-  contentHash         String
-  rawContent          String
-  normalizedContent   String
-  blocks              Json
-  extractedData       Json
-  confidenceData      Json
-  provenanceData      Json
-  llmUsed             Boolean  @default(false)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  session             Session  @relation(fields: [sessionId], references: [id])
-
-  @@index([sessionId, extractionProfile])
-  @@index([sessionId, documentFingerprint])
-  @@unique([sessionId, extractionProfile, schemaSignature, documentFingerprint])
-}
-
-model SemanticCache {
-  id          String   @id @default(uuid())
-  apiKeyId    String
-  fingerprint String
-  question    String
-  answer      Json
-  embedding   Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  apiKey      ApiKey   @relation(fields: [apiKeyId], references: [id])
-
-  @@unique([apiKeyId, fingerprint])
-  @@index([apiKeyId, createdAt])
-}
-
-model TokenUsage {
+// Operational data lives in tenant schemas, not in public.
+// Token usage is created dynamically in tenant_<slug>.token_usage.
+/*
+model TokenUsageIgnore {
   id                         String   @id @default(uuid())
   apiKeyId                   String
 
@@ -158,32 +86,13 @@ model TokenUsage {
   workloadCategory           String?
   createdAt                  DateTime @default(now())
 
-  apiKey                     ApiKey   @relation(fields: [apiKeyId], references: [id])
-
   @@index([apiKeyId, createdAt])
   @@index([apiKeyId, routeType, createdAt])
   @@index([apiKeyId, workloadCategory, createdAt])
   @@index([apiKeyId, keySource, createdAt])
+  @@ignore
 }
-
-model ProviderKey {
-  id                String   @id @default(uuid())
-  apiKeyId          String
-  provider          String
-  label             String?
-  encryptedKey      String
-  isDefault         Boolean  @default(true)
-  isActive          Boolean  @default(true)
-  validationStatus  String?  @default("pending")
-  validationMessage String?
-  lastValidatedAt   DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  apiKey            ApiKey   @relation(fields: [apiKeyId], references: [id])
-
-  @@index([apiKeyId, provider])
-}
+*/
 
 model ModelPricing {
   id          String   @id @default(uuid())

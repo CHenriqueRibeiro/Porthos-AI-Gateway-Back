@@ -31,7 +31,8 @@ async function chatRoutes(fastify) {
           model = "openai/gpt-4o-mini",
           messages = [],
           temperature = 0.2,
-          max_tokens = 300
+          max_tokens = 300,
+          debug = false
         } = request.body || {}
 
         if (!sessionId) {
@@ -59,7 +60,8 @@ async function chatRoutes(fastify) {
           responseFormat: null,
           extractionProfile: "generic_document",
           routeType: "chat",
-          workloadCategory
+          workloadCategory,
+          includeDebug: debug === true
         })
 
         return reply.send(result)
@@ -84,6 +86,19 @@ async function chatRoutes(fastify) {
         ) {
           return reply.code(400).send({
             error: error.message
+          })
+        }
+
+        if (error.statusCode === 402) {
+          return reply.code(402).send({
+            error: error.message
+          })
+        }
+
+        if (error.code === "INVALID_ENCRYPTED_PROVIDER_KEY") {
+          return reply.code(409).send({
+            error: error.message,
+            providerKeyId: error.providerKeyId || null
           })
         }
 

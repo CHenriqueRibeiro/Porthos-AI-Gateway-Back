@@ -1,4 +1,3 @@
-const prisma = require("../db/prisma")
 const messageService = require("./message.service")
 const providerKeyService = require("./providerKey.service")
 const llmRouterService = require("./llmRouter.service")
@@ -66,10 +65,9 @@ async function shouldPersistMessagePair({
   const normalizedUserContent = normalizePersistedContent(userContent)
   const normalizedAssistantContent = normalizePersistedContent(assistantContent)
 
-  const lastMessages = await prisma.message.findMany({
-    where: { sessionId },
-    orderBy: { createdAt: "desc" },
-    take: 2
+  const lastMessages = await messageService.getRecentMessages({
+    sessionId,
+    limit: 2
   })
 
   if (lastMessages.length < 2) {
@@ -90,8 +88,13 @@ async function shouldPersistMessagePair({
 async function persistConversationTurnIfNeeded({
   sessionId,
   userContent,
-  assistantContent
+  assistantContent,
+  shouldPersistHistory = true
 }) {
+  if (!shouldPersistHistory) {
+    return false
+  }
+
   const normalizedUserContent = normalizePersistedContent(userContent)
   const normalizedAssistantContent = normalizePersistedContent(assistantContent)
 
@@ -203,7 +206,14 @@ function buildOpenAICompatibleResponse({
       scope,
       cache,
       durationMs,
-      ...meta
+      provider: meta?.provider || null,
+      providerModel: meta?.providerModel || null,
+      keySource: meta?.keySource || null,
+      llmCalled: meta?.llmCalled || false,
+      cacheLayer: meta?.cacheLayer || null,
+      routeType: meta?.routeType || null,
+      workloadCategory: meta?.workloadCategory || null,
+      ...(meta?.debug ? { debug: meta.debug } : {})
     }
   }
 }
@@ -218,7 +228,8 @@ async function sendMessage({
   responseFormat = null,
   extractionProfile = "generic_document",
   routeType = "chat",
-  workloadCategory = "light"
+  workloadCategory = "light",
+  includeDebug = false
 }) {
   const startedAt = Date.now()
 
@@ -231,6 +242,11 @@ async function sendMessage({
 
   const { runtimePolicy, effectiveConfig } =
     await getRuntimePolicyForApiKey(apiKeyId)
+
+  const shouldPersistHistory =
+    runtimePolicy.planType !== "free" &&
+    runtimePolicy.planCode !== "free" &&
+    runtimePolicy.planCode !== "free_trial"
 
   const stripped = conservativeContextStrip(lastUserMessage.content)
 
@@ -255,9 +271,9 @@ async function sendMessage({
   })
 
   if (agentState.changed) {
-    await prisma.session.update({
-      where: { id: sessionId },
-      data: { summary: null }
+    await sessionService.updateSessionSummary({
+      sessionId,
+      summary: null
     })
   }
 
@@ -299,7 +315,7 @@ async function sendMessage({
     maxTokens,
     responseFormat,
     extractionProfile,
-    keySource: "platform",
+    keySource: "customer",
     extractionUsed: false,
     extractionResolvedLocally: 0,
     extractionResolvedByLLM: 0,
@@ -373,13 +389,11 @@ async function sendMessage({
       await persistConversationTurnIfNeeded({
         sessionId,
         userContent: lastUserMessage.content,
-        assistantContent: JSON.stringify(memoryResponse)
+        assistantContent: JSON.stringify(memoryResponse),
+        shouldPersistHistory
       })
 
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { lastActivityAt: new Date() }
-      })
+      await sessionService.updateSessionActivity(sessionId)
 
       await runSafe("saveTokenUsage document memory", () =>
         saveTokenUsage({
@@ -412,9 +426,7 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: {
-          ...debug
-        }
+        meta: includeDebug ? { ...debug, debug } : debug
       })
     }
 
@@ -488,13 +500,11 @@ async function sendMessage({
       await persistConversationTurnIfNeeded({
         sessionId,
         userContent: lastUserMessage.content,
-        assistantContent: JSON.stringify(localResponse)
+        assistantContent: JSON.stringify(localResponse),
+        shouldPersistHistory
       })
 
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { lastActivityAt: new Date() }
-      })
+      await sessionService.updateSessionActivity(sessionId)
 
       await runSafe("upsertSessionFieldMemory local", () =>
         upsertSessionFieldMemory({
@@ -555,9 +565,7 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: {
-          ...debug
-        }
+        meta: includeDebug ? { ...debug, debug } : debug
       })
     }
   }
@@ -570,13 +578,11 @@ async function sendMessage({
     await persistConversationTurnIfNeeded({
       sessionId,
       userContent: lastUserMessage.content,
-      assistantContent: dynamicResponse
+      assistantContent: dynamicResponse,
+      shouldPersistHistory
     })
 
-    await prisma.session.update({
-      where: { id: sessionId },
-      data: { lastActivityAt: new Date() }
-    })
+    await sessionService.updateSessionActivity(sessionId)
 
     await runSafe("saveTokenUsage dynamic", () =>
       saveTokenUsage({
@@ -609,19 +615,33 @@ async function sendMessage({
       llmInputTokens: 0,
       llmOutputTokens: 0,
       llmTotalTokens: 0,
-      meta: {
-        ...debug,
-        llmCalled: false,
-        cacheLayer: "local",
-        dynamicIntent
-      }
+      meta: includeDebug
+        ? {
+            ...debug,
+            llmCalled: false,
+            cacheLayer: "local",
+            dynamicIntent,
+            debug: {
+              ...debug,
+              llmCalled: false,
+              cacheLayer: "local",
+              dynamicIntent
+            }
+          }
+        : {
+            ...debug,
+            llmCalled: false,
+            cacheLayer: "local"
+          }
     })
   }
 
   const fingerprintCacheKey = conversationSignature
   const semanticCacheKey = optimizedContent
+  const redisCacheEnabled = runtimePolicy.cache?.redisEnabled === true
+  const semanticCacheEnabled = runtimePolicy.cache?.semanticEnabled === true
 
-  if (scope === "global") {
+  if (scope === "global" && redisCacheEnabled) {
     const cached = await fingerprintService.findCachedAnswer(
       apiKeyId,
       fingerprintCacheKey,
@@ -643,13 +663,11 @@ async function sendMessage({
       await persistConversationTurnIfNeeded({
         sessionId,
         userContent: lastUserMessage.content,
-        assistantContent: cachedResponseContent
+        assistantContent: cachedResponseContent,
+        shouldPersistHistory
       })
 
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { lastActivityAt: new Date() }
-      })
+      await sessionService.updateSessionActivity(sessionId)
 
       await runSafe("saveTokenUsage fingerprint", () =>
         saveTokenUsage({
@@ -684,23 +702,25 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: {
-          ...debug
-        }
+        meta: includeDebug ? { ...debug, debug } : debug
       })
     }
 
-    const semanticMatch = await semanticCacheService.findSemanticMatch(
+    const semanticMatch = semanticCacheEnabled
+      ? await semanticCacheService.findSemanticMatch(
       apiKeyId,
       semanticCacheKey,
       responseFormat
-    )
+        )
+      : null
 
     if (semanticMatch) {
       debug.cacheLayer = "semantic"
       debug.semanticHit = true
       debug.llmCalled = false
-      debug.postgresHit = semanticMatch.source === "postgres"
+      debug.postgresHit =
+        semanticMatch.source === "postgres" ||
+        semanticMatch.source === "postgres_pgvector"
       debug.similarity = semanticMatch.score
 
       const semanticResponseContent =
@@ -711,13 +731,11 @@ async function sendMessage({
       await persistConversationTurnIfNeeded({
         sessionId,
         userContent: lastUserMessage.content,
-        assistantContent: semanticResponseContent
+        assistantContent: semanticResponseContent,
+        shouldPersistHistory
       })
 
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { lastActivityAt: new Date() }
-      })
+      await sessionService.updateSessionActivity(sessionId)
 
       await runSafe("save fingerprint from semantic", () =>
         fingerprintService.saveCachedAnswer(
@@ -764,9 +782,7 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: {
-          ...debug
-        }
+        meta: includeDebug ? { ...debug, debug } : debug
       })
     }
   }
@@ -774,11 +790,7 @@ async function sendMessage({
   let sessionSummary = null
 
   if (normalizedMessages.length <= 2 && !agentState.changed) {
-    const sessionData = await prisma.session.findUnique({
-      where: { id: sessionId }
-    })
-
-    sessionSummary = sessionData.summary
+    sessionSummary = await sessionService.getSessionSummary(sessionId)
     debug.summaryUsed = !!sessionSummary
   }
 
@@ -805,18 +817,12 @@ async function sendMessage({
     provider
   )
 
-  const resolvedKeySource = customerProviderKey ? "customer" : "platform"
-
-  if (customerProviderKey) {
-    debug.keySource = "customer"
-  } else {
-    debug.keySource = "platform"
-  }
-
-  const apiKeyOverrides = {
-    openai: process.env.OPENAI_API_KEY || null,
-    anthropic: process.env.ANTHROPIC_API_KEY || null,
-    gemini: process.env.GEMINI_API_KEY || null
+  if (!customerProviderKey) {
+    const error = new Error(
+      `Provider key obrigat\u00f3ria para ${provider}. Cadastre uma chave em /provider-keys antes de usar este modelo.`
+    )
+    error.statusCode = 402
+    throw error
   }
 
   const llmResult = await llmRouterService.generateResponse({
@@ -825,9 +831,7 @@ async function sendMessage({
     temperature,
     maxTokens,
     responseFormat,
-    apiKeyOverride: customerProviderKey
-      ? customerProviderKey.apiKey
-      : apiKeyOverrides[provider]
+    apiKeyOverride: customerProviderKey.apiKey
   })
 
   let response = llmResult.content
@@ -905,7 +909,8 @@ async function sendMessage({
     sessionId,
     userContent: lastUserMessage.content,
     assistantContent:
-      typeof response === "string" ? response : JSON.stringify(response)
+      typeof response === "string" ? response : JSON.stringify(response),
+    shouldPersistHistory
   })
 
   if (response && typeof response === "object" && response.data) {
@@ -949,7 +954,7 @@ async function sendMessage({
     )
   }
 
-  if (scope === "global") {
+  if (scope === "global" && redisCacheEnabled) {
     await runSafe("saveCachedAnswer llm", () =>
       fingerprintService.saveCachedAnswer(
         apiKeyId,
@@ -962,23 +967,23 @@ async function sendMessage({
       )
     )
 
-    await runSafe("saveSemanticCache llm", () =>
+    if (semanticCacheEnabled) {
+      await runSafe("saveSemanticCache llm", () =>
       semanticCacheService.saveSemanticCache(
         apiKeyId,
         semanticCacheKey,
         response,
         responseFormat,
         {
-          ttlSeconds: runtimePolicy.cache.ttlSeconds
+          ttlSeconds: runtimePolicy.cache.ttlSeconds,
+          semanticRetentionDays: runtimePolicy.cache.semanticRetentionDays
         }
       )
-    )
+      )
+    }
   }
 
-  await prisma.session.update({
-    where: { id: sessionId },
-    data: { lastActivityAt: new Date() }
-  })
+  await sessionService.updateSessionActivity(sessionId)
 
   await runSafe("updateConversationSummary", () =>
     memoryService.updateConversationSummary(sessionId)
@@ -996,7 +1001,7 @@ async function sendMessage({
       llmOutputTokens: llmResult.usage.outputTokens,
       provider: llmResult.provider,
       providerModel: llmResult.providerModel,
-      keySource: resolvedKeySource,
+      keySource: "customer",
       estimatedCostInput: estimatedCost.estimatedCostInput,
       estimatedCostOutput: estimatedCost.estimatedCostOutput,
       estimatedCostTotal: estimatedCost.estimatedCostTotal,
@@ -1017,9 +1022,7 @@ async function sendMessage({
     llmInputTokens: llmResult.usage.inputTokens,
     llmOutputTokens: llmResult.usage.outputTokens,
     llmTotalTokens: llmResult.usage.totalTokens,
-    meta: {
-      ...debug
-    }
+    meta: includeDebug ? { ...debug, debug } : debug
   })
 }
 

@@ -1,6 +1,10 @@
 const prisma = require("../db/prisma")
 const { getRuntimePolicyForApiKey } = require("./subscriptionRuntime.service")
 const { pruneSemanticCacheByApiKey } = require("./semanticCache.service")
+const { pruneExpiredVectorCache } = require("./semanticVectorCache.service")
+const tokenUsageService = require("./tokenUsage.service")
+const { schemaSql } = require("./tenantSchema.service")
+const { getTenantSchemaByApiKeyId } = require("./tenantData.service")
 
 async function pruneOperationalHistoryByApiKey({
   apiKeyId,
@@ -8,17 +12,16 @@ async function pruneOperationalHistoryByApiKey({
 }) {
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - retentionDays)
+  const schema = schemaSql(await getTenantSchemaByApiKeyId(apiKeyId))
 
-  const sessions = await prisma.session.findMany({
-    where: {
-      apiKeyId
-    },
-    select: {
-      id: true,
-      status: true,
-      lastActivityAt: true
-    }
-  })
+  const sessions = await prisma.$queryRaw`
+    SELECT
+      id,
+      status,
+      last_activity_at AS "lastActivityAt"
+    FROM ${schema}.sessions
+    WHERE api_key_id = ${apiKeyId}
+  `
 
   const endedSessionIds = sessions
     .filter(
@@ -29,16 +32,11 @@ async function pruneOperationalHistoryByApiKey({
     .map((session) => session.id)
 
   if (endedSessionIds.length > 0) {
-    await prisma.message.deleteMany({
-      where: {
-        sessionId: {
-          in: endedSessionIds
-        },
-        createdAt: {
-          lt: cutoff
-        }
-      }
-    })
+    await prisma.$executeRaw`
+      DELETE FROM ${schema}.messages
+      WHERE session_id = ANY(${endedSessionIds})
+        AND created_at < ${cutoff}
+    `
   }
 }
 
@@ -49,13 +47,9 @@ async function pruneAnalyticsByApiKey({
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - retentionDays)
 
-  await prisma.tokenUsage.deleteMany({
-    where: {
-      apiKeyId,
-      createdAt: {
-        lt: cutoff
-      }
-    }
+  await tokenUsageService.deleteTokenUsageBefore({
+    apiKeyId,
+    cutoff
   })
 }
 
@@ -115,9 +109,45 @@ async function runMaintenanceForAllApiKeys() {
   }
 }
 
+async function pruneExpiredTenantCaches() {
+  const tenants = await prisma.tenant.findMany({
+    where: {
+      isActive: true
+    },
+    select: {
+      id: true,
+      schemaName: true
+    }
+  })
+
+  const results = []
+
+  for (const tenant of tenants) {
+    try {
+      const deleted = await pruneExpiredVectorCache(tenant.schemaName)
+      results.push({
+        tenantId: tenant.id,
+        schemaName: tenant.schemaName,
+        deleted,
+        success: true
+      })
+    } catch (error) {
+      results.push({
+        tenantId: tenant.id,
+        schemaName: tenant.schemaName,
+        error: error.message,
+        success: false
+      })
+    }
+  }
+
+  return results
+}
+
 module.exports = {
   pruneOperationalHistoryByApiKey,
   pruneAnalyticsByApiKey,
+  pruneExpiredTenantCaches,
   runMaintenanceForApiKey,
   runMaintenanceForAllApiKeys
 }

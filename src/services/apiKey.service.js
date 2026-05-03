@@ -1,18 +1,93 @@
 const crypto = require("crypto")
 const prisma = require("../db/prisma")
+const {
+  buildTenantSchemaName,
+  normalizeTenantSlug,
+  ensureTenantSchema
+} = require("./tenantSchema.service")
+const { getRuntimePolicyForApiKey } = require("./subscriptionRuntime.service")
 
 function generateGatewayApiKey() {
   return `sk_live_${crypto.randomBytes(24).toString("hex")}`
 }
 
-async function createApiKey({ userId }) {
-  const apiKey = generateGatewayApiKey()
-  return prisma.apiKey.create({
+async function resolveOrCreateTenantForUser({ userId, tx = prisma }) {
+  const existingTenant = await tx.tenant.findFirst({
+    where: { ownerId: userId, isActive: true },
+    orderBy: { createdAt: "asc" }
+  })
+
+  if (existingTenant) {
+    return existingTenant
+  }
+
+  const user = await tx.user.findUnique({
+    where: { id: userId },
+    select: { name: true, email: true }
+  })
+
+  const slugBase = normalizeTenantSlug(
+    user?.name || user?.email?.split("@")[0] || userId
+  )
+  const slug = `${slugBase}_${crypto.randomBytes(3).toString("hex")}`
+
+  return tx.tenant.create({
     data: {
-      key: apiKey,
-      userId
+      ownerId: userId,
+      slug,
+      name: user?.name || null,
+      schemaName: buildTenantSchemaName(slug)
     }
   })
+}
+
+async function createApiKey({ userId }) {
+  const apiKey = generateGatewayApiKey()
+
+  const created = await prisma.$transaction(async (tx) => {
+    const tenant = await resolveOrCreateTenantForUser({ userId, tx })
+    const existingApiKeys = await tx.apiKey.findMany({
+      where: {
+        tenantId: tenant.id
+      },
+      orderBy: {
+        createdAt: "asc"
+      },
+      select: {
+        id: true
+      }
+    })
+
+    if (existingApiKeys.length > 0) {
+      const { runtimePolicy } = await getRuntimePolicyForApiKey(
+        existingApiKeys[0].id
+      )
+      const maxApiKeys = runtimePolicy.limits.maxApiKeys || 1
+
+      if (existingApiKeys.length >= maxApiKeys) {
+        throw new Error(
+          `Limite de API keys do plano atingido (${maxApiKeys}). Faça upgrade ou contrate add-on.`
+        )
+      }
+    }
+
+    return tx.apiKey.create({
+      data: {
+        key: apiKey,
+        userId,
+        tenantId: tenant.id
+      },
+      include: {
+        tenant: true
+      }
+    })
+  })
+
+  if (created.tenant?.schemaName) {
+    await ensureTenantSchema(created.tenant.schemaName)
+  }
+
+  return created
 }
 
 async function findApiKeyByKey(key) {
@@ -27,7 +102,10 @@ async function findApiKeyByKey(key) {
   }
 
   return prisma.apiKey.findUnique({
-    where: { key: normalized }
+    where: { key: normalized },
+    include: {
+      tenant: true
+    }
   })
 }
 
@@ -50,7 +128,14 @@ async function listApiKeysForUser({
     select: {
       id: true,
       key: true,
-      createdAt: true
+      createdAt: true,
+      tenant: {
+        select: {
+          id: true,
+          slug: true,
+          schemaName: true
+        }
+      }
     }
   })
 
@@ -62,7 +147,8 @@ async function listApiKeysForUser({
         row.key === currentKeyPlain.trim()) ||
       (typeof highlightApiKeyId === "string" && row.id === highlightApiKeyId)
     ),
-    createdAt: row.createdAt
+    createdAt: row.createdAt,
+    tenant: row.tenant
   }))
 }
 
@@ -106,13 +192,17 @@ async function getFullApiKeyForUserScoped({ userId, apiKeyId }) {
   }
 
   return prisma.apiKey.findUnique({
-    where: { id }
+    where: { id },
+    include: {
+      tenant: true
+    }
   })
 }
 
 module.exports = {
   generateGatewayApiKey,
   createApiKey,
+  resolveOrCreateTenantForUser,
   findApiKeyByKey,
   listApiKeysForUser,
   assertApiKeyOwnedByUser,

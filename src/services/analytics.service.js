@@ -1,5 +1,6 @@
 const prisma = require("../db/prisma")
 const subscriptionService = require("./subscription.service")
+const tokenUsageService = require("./tokenUsage.service")
 const { resolveEffectiveConfig } = require("./billingConfig.service")
 
 function formatDay(date) {
@@ -127,15 +128,10 @@ async function getUsageByApiKey(apiKeyId, filters = {}) {
     period = getDefaultPeriod()
   }
 
-  const usages = await prisma.tokenUsage.findMany({
-    where: {
-      apiKeyId,
-      createdAt: {
-        gte: period.start,
-        lte: period.end
-      }
-    },
-    orderBy: { createdAt: "desc" }
+  const usages = await tokenUsageService.findTokenUsageByApiKey({
+    apiKeyId,
+    start: period.start,
+    end: period.end
   })
 
   const activeSubscription =

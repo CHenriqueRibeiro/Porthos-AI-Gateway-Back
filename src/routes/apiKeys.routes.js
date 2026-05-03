@@ -24,6 +24,12 @@ async function apiKeysRoutes(fastify) {
     } catch (error) {
       request.log.error(error)
 
+      if (error.message.includes("Limite de API keys")) {
+        return reply.code(403).send({
+          error: error.message
+        })
+      }
+
       return reply.code(500).send({
         error: "Erro ao listar API keys",
         details: error.message

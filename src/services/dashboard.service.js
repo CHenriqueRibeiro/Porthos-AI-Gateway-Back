@@ -1,5 +1,6 @@
 const prisma = require("../db/prisma")
 const subscriptionService = require("./subscription.service")
+const tokenUsageService = require("./tokenUsage.service")
 const { resolveEffectiveConfig } = require("./billingConfig.service")
 
 function formatDay(date) {
@@ -169,18 +170,19 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
 
   const apiKeyIds = apiKeys.map((item) => item.id)
 
-  const usages = await prisma.tokenUsage.findMany({
-    where: {
-      apiKeyId: {
-        in: apiKeyIds
-      },
-      createdAt: {
-        gte: period.start,
-        lte: period.end
-      }
-    },
-    orderBy: { createdAt: "desc" }
-  })
+  const usages = (
+    await Promise.all(
+      apiKeyIds.map((apiKeyId) =>
+        tokenUsageService.findTokenUsageByApiKey({
+          apiKeyId,
+          start: period.start,
+          end: period.end
+        })
+      )
+    )
+  )
+    .flat()
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
   const activeSubscriptions = await prisma.customerSubscription.findMany({
     where: {

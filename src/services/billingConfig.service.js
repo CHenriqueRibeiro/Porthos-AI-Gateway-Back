@@ -78,118 +78,73 @@ function resolveEffectiveConfig(subscription) {
   }
 }
 
-function buildOperationalLimits(planCode = "") {
-  const defaults = {
-    maxInputChars: 15000,
-    maxSchemaFields: 40,
-    maxRelevantBlocks: 8,
-    maxCandidateHints: 30
-  }
-
+function buildOperationalLimits(planCode = "free") {
   const map = {
-    flex_start: {
+    free: {
+      maxInputChars: 8000,
+      maxSchemaFields: 20,
+      maxRelevantBlocks: 4,
+      maxCandidateHints: 15
+    },
+    starter: {
       maxInputChars: 15000,
       maxSchemaFields: 40,
       maxRelevantBlocks: 8,
       maxCandidateHints: 30
     },
-    flex_pro: {
+    growth: {
       maxInputChars: 35000,
       maxSchemaFields: 80,
       maxRelevantBlocks: 12,
       maxCandidateHints: 50
     },
-    prime_start: {
-      maxInputChars: 25000,
-      maxSchemaFields: 60,
-      maxRelevantBlocks: 10,
-      maxCandidateHints: 40
-    },
-    prime_pro: {
+    pro: {
       maxInputChars: 50000,
       maxSchemaFields: 120,
       maxRelevantBlocks: 16,
       maxCandidateHints: 60
+    },
+    scale: {
+      maxInputChars: 100000,
+      maxSchemaFields: 200,
+      maxRelevantBlocks: 24,
+      maxCandidateHints: 100
     }
   }
 
-  return map[planCode] || defaults
+  return map[planCode] || map.free
 }
 
-function buildRateLimitPolicy(planCode = "") {
-  const defaults = {
-    perMinute: 30,
-    burst: 10,
-    windowSeconds: 60
-  }
-
+function buildRateLimitPolicy(planCode = "free") {
   const map = {
-    flex_start: {
+    free: {
+      perMinute: 20,
+      burst: 5,
+      windowSeconds: 60
+    },
+    starter: {
       perMinute: 60,
       burst: 20,
       windowSeconds: 60
     },
-    flex_pro: {
+    growth: {
       perMinute: 180,
       burst: 60,
       windowSeconds: 60
     },
-    prime_start: {
-      perMinute: 100,
-      burst: 30,
-      windowSeconds: 60
-    },
-    prime_pro: {
+    pro: {
       perMinute: 300,
       burst: 100,
       windowSeconds: 60
+    },
+    scale: {
+      perMinute: 600,
+      burst: 200,
+      windowSeconds: 60
     }
   }
 
-  return map[planCode] || defaults
-}
-
-function buildConcurrencyPolicy(planCode = "") {
-  const defaults = {
-    lightMaxInFlight: 15,
-    mediumMaxInFlight: 6,
-    heavyMaxInFlight: 2,
-    heavyQueueWaitMs: 4000,
-    pollIntervalMs: 250
-  }
-
-  const map = {
-    flex_start: {
-      lightMaxInFlight: 30,
-      mediumMaxInFlight: 8,
-      heavyMaxInFlight: 2,
-      heavyQueueWaitMs: 5000,
-      pollIntervalMs: 250
-    },
-    flex_pro: {
-      lightMaxInFlight: 80,
-      mediumMaxInFlight: 20,
-      heavyMaxInFlight: 5,
-      heavyQueueWaitMs: 8000,
-      pollIntervalMs: 250
-    },
-    prime_start: {
-      lightMaxInFlight: 50,
-      mediumMaxInFlight: 12,
-      heavyMaxInFlight: 3,
-      heavyQueueWaitMs: 6000,
-      pollIntervalMs: 250
-    },
-    prime_pro: {
-      lightMaxInFlight: 120,
-      mediumMaxInFlight: 30,
-      heavyMaxInFlight: 8,
-      heavyQueueWaitMs: 10000,
-      pollIntervalMs: 250
-    }
-  }
-
-  return map[planCode] || defaults
+  return map[planCode] || map.free
 }
 
 function resolveRuntimePolicy(effectiveConfig) {
@@ -198,8 +153,11 @@ function resolveRuntimePolicy(effectiveConfig) {
       planCode: "no_plan",
       planType: null,
       cache: {
-        ttlHours: 24,
-        ttlSeconds: 24 * 60 * 60
+        enabled: false,
+        redisEnabled: false,
+        semanticEnabled: false,
+        ttlHours: 0,
+        ttlSeconds: 0
       },
       history: {
         retentionDays: 30
@@ -209,14 +167,22 @@ function resolveRuntimePolicy(effectiveConfig) {
         maxItems: 500
       },
       semantic: {
-        maxRecords: 10000
+        maxRecords: 0,
+        retentionDays: 0
       },
       analytics: {
         retentionDays: 30
       },
-      limits: buildOperationalLimits("flex_start"),
-      rateLimit: buildRateLimitPolicy("flex_start"),
-      concurrency: buildConcurrencyPolicy("flex_start")
+      storage: {
+        storageMb: 50
+      },
+      limits: {
+        ...buildOperationalLimits("free"),
+        maxApiKeys: 1,
+        storageMb: 50
+      },
+      rateLimit: buildRateLimitPolicy("free"),
+      concurrency: FEATURE_PRESETS.concurrency.baixa
     }
   }
 
@@ -227,32 +193,63 @@ function resolveRuntimePolicy(effectiveConfig) {
   const semanticConfig =
     effectiveConfig.features?.base_inteligente?.config || {}
   const analyticsConfig = effectiveConfig.features?.analytics?.config || {}
+  const apiKeysConfig = effectiveConfig.features?.api_keys?.config || {}
+  const storageConfig = effectiveConfig.features?.storage?.config || {}
+  const concurrencyConfig = effectiveConfig.features?.concurrency?.config || {}
+  const isFreePlan =
+    effectiveConfig.plan.type === "free" ||
+    effectiveConfig.plan.code === "free" ||
+    effectiveConfig.plan.code === "free_trial"
 
-  const ttlHours = cacheConfig.ttlHours || 24
+  const cacheEnabled = !isFreePlan && cacheConfig.enabled !== false
+  const redisEnabled = cacheEnabled && cacheConfig.redisEnabled !== false
+  const semanticEnabled = cacheEnabled && cacheConfig.semanticEnabled !== false
+  const ttlHours = cacheEnabled ? (cacheConfig.ttlHours || 24) : 0
 
   return {
     planCode: effectiveConfig.plan.code,
     planType: effectiveConfig.plan.type,
     cache: {
+      enabled: cacheEnabled,
+      redisEnabled,
+      semanticEnabled,
       ttlHours,
-      ttlSeconds: ttlHours * 60 * 60
+      ttlSeconds: ttlHours * 60 * 60,
+      semanticRetentionDays: semanticEnabled
+        ? (cacheConfig.semanticRetentionDays || 1)
+        : 0
     },
     history: {
       retentionDays: historyConfig.retentionDays || 30
     },
     memory: {
-      retentionDays: memoryConfig.retentionDays || 30,
-      maxItems: memoryConfig.maxItems || 500
+      enabled: memoryConfig.enabled !== false,
+      retentionDays: memoryConfig.retentionDays ?? 30,
+      maxItems: memoryConfig.maxItems ?? 500
     },
     semantic: {
-      maxRecords: semanticConfig.maxRecords || 10000
+      maxRecords: semanticEnabled ? (semanticConfig.maxRecords || 10000) : 0,
+      retentionDays: semanticEnabled
+        ? (cacheConfig.semanticRetentionDays || 1)
+        : 0
     },
     analytics: {
+      level: analyticsConfig.level || "basic",
       retentionDays: analyticsConfig.retentionDays || 30
     },
-    limits: buildOperationalLimits(effectiveConfig.plan.code),
+    storage: {
+      storageMb: storageConfig.storageMb || 50
+    },
+    limits: {
+      ...buildOperationalLimits(effectiveConfig.plan.code),
+      maxApiKeys: apiKeysConfig.maxApiKeys || 1,
+      storageMb: storageConfig.storageMb || 50
+    },
     rateLimit: buildRateLimitPolicy(effectiveConfig.plan.code),
-    concurrency: buildConcurrencyPolicy(effectiveConfig.plan.code)
+    concurrency: {
+      ...FEATURE_PRESETS.concurrency.baixa,
+      ...concurrencyConfig
+    }
   }
 }
 
@@ -274,7 +271,8 @@ function getAddonCatalogSummary() {
     featureKey: addon.featureKey,
     presetKey: addon.presetKey,
     price: centsToCurrency(addon.priceCents),
-    priceCents: addon.priceCents
+    priceCents: addon.priceCents,
+    allowedPlans: addon.allowedPlans || []
   }))
 }
 

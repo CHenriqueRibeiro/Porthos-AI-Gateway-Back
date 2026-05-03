@@ -29,6 +29,8 @@ async function attachGatewayKeyFromSessionBody(request, reply) {
   }
 
   request.apiKeyRecord = session.apiKey
+  request.tenant = session.apiKey.tenant || null
+  request.tenantSchemaName = session.apiKey.tenant?.schemaName || null
 }
 
 module.exports = {

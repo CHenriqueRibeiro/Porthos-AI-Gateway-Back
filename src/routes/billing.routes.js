@@ -154,6 +154,17 @@ async function billingRoutes(fastify) {
       })
     } catch (error) {
       console.error(error)
+
+      if (
+        error.message.includes("Add-on") ||
+        error.message.includes("Plano n") ||
+        error.message.includes("excedem o limite comercial")
+      ) {
+        return reply.code(400).send({
+          error: error.message
+        })
+      }
+
       return reply.code(500).send({
         error: "Erro ao criar assinatura",
         details: error.message

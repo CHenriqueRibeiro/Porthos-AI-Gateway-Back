@@ -3,7 +3,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: porthos_postgres
     restart: unless-stopped
     env_file:
@@ -16,6 +16,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-vector.sql:/docker-entrypoint-initdb.d/01-init-vector.sql:ro
     networks:
       - porthos_network
     healthcheck:

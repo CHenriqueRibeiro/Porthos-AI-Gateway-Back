@@ -26,6 +26,24 @@ function encrypt(text) {
 function decrypt(payload) {
   const [ivHex, authTagHex, encrypted] = String(payload).split(":")
 
+  const isValidHex = (value, length) =>
+    typeof value === "string" &&
+    value.length === length &&
+    /^[0-9a-f]+$/i.test(value)
+
+  if (
+    !isValidHex(ivHex, 32) ||
+    !isValidHex(authTagHex, 32) ||
+    !encrypted ||
+    !/^[0-9a-f]+$/i.test(encrypted)
+  ) {
+    const error = new Error(
+      "Provider key criptografada em formato inv\u00e1lido. Remova e cadastre a chave novamente."
+    )
+    error.code = "INVALID_ENCRYPTED_PROVIDER_KEY"
+    throw error
+  }
+
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",
     KEY,

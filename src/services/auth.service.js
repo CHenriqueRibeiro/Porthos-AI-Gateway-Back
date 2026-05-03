@@ -1,7 +1,13 @@
 const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
+const crypto = require("crypto")
 const prisma = require("../db/prisma")
 const apiKeyService = require("./apiKey.service")
+const {
+  buildTenantSchemaName,
+  normalizeTenantSlug,
+  ensureTenantSchema
+} = require("./tenantSchema.service")
 
 function signAccessToken(user) {
   const secret = process.env.JWT_SECRET || "dev_secret_change_me"
@@ -22,7 +28,7 @@ async function registerUser({
   name,
   email,
   password,
-  planCode
+  planCode = "free"
 }) {
   const normalizedEmail = String(email || "").trim().toLowerCase()
 
@@ -46,6 +52,11 @@ async function registerUser({
   }
 
   const hashedPassword = await bcrypt.hash(password, 10)
+  const tenantSlugBase = normalizeTenantSlug(
+    name || normalizedEmail.split("@")[0]
+  )
+  const tenantSlug = `${tenantSlugBase}_${crypto.randomBytes(3).toString("hex")}`
+  const tenantSchemaName = buildTenantSchemaName(tenantSlug)
 
   const result = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({
@@ -56,10 +67,20 @@ async function registerUser({
       }
     })
 
+    const tenant = await tx.tenant.create({
+      data: {
+        ownerId: user.id,
+        slug: tenantSlug,
+        name,
+        schemaName: tenantSchemaName
+      }
+    })
+
     const apiKey = await tx.apiKey.create({
       data: {
         key: apiKeyService.generateGatewayApiKey(),
-        userId: user.id
+        userId: user.id,
+        tenantId: tenant.id
       }
     })
 
@@ -76,10 +97,13 @@ async function registerUser({
 
     return {
       user,
+      tenant,
       apiKey,
       subscription
     }
   })
+
+  await ensureTenantSchema(result.tenant.schemaName)
 
   const accessToken = signAccessToken(result.user)
 
@@ -92,6 +116,11 @@ async function registerUser({
     apiKey: {
       id: result.apiKey.id,
       key: result.apiKey.key
+    },
+    tenant: {
+      id: result.tenant.id,
+      slug: result.tenant.slug,
+      schemaName: result.tenant.schemaName
     },
     subscription: {
       id: result.subscription.id,

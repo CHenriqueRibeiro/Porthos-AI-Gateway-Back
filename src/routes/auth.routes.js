@@ -3,9 +3,9 @@ const authService = require("../services/auth.service")
 async function authRoutes(fastify) {
   fastify.post("/auth/register", async (request, reply) => {
     try {
-      const { name, email, password, planCode } = request.body || {}
+      const { name, email, password, planCode = "free" } = request.body || {}
 
-      if (!name || !email || !password || !planCode) {
+      if (!name || !email || !password) {
         return reply.code(400).send({
           error: "name, email, password e planCode são obrigatórios"
         })
