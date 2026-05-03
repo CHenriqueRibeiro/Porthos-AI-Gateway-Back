@@ -17,17 +17,48 @@ const dashboardRoutes = require("./routes/dashboard.routes")
 
 function buildApp() {
   const fastify = Fastify({
-    logger: true
+    logger: true,
+    bodyLimit: Number(process.env.REQUEST_BODY_LIMIT_BYTES || 1024 * 1024),
+    server: {
+      keepAliveTimeout: 65000,
+      headersTimeout: 66000    }
   })
 
-  // Register CORS plugin
+  fastify.decorateRequest("authUser", null)
+  fastify.decorateRequest("apiKeyRecord", null)
+  fastify.decorateRequest("tenant", null)
+  fastify.decorateRequest("tenantSchemaName", null)
+  fastify.decorateRequest("runtimePolicy", null)
+  fastify.decorateRequest("effectiveConfig", null)
+  fastify.decorateRequest("workload", null)
+  fastify.decorateRequest("releaseConcurrencySlot", null)
+  fastify.decorateRequest("startedAt", 0)
+
+
   fastify.register(require('@fastify/cors'), {
-    origin: true, // Allow all origins for development; adjust for production
+    origin: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 
   fastify.addHook("onRequest", gatewayAuthOnRequest)
+
+  fastify.addHook("onRequest", async (request) => {
+    request.startedAt = Date.now()
+  })
+
+  fastify.addHook("onSend", async (request, reply, payload) => {
+    reply.header("X-Response-Time-Ms", String(Date.now() - request.startedAt))
+    return payload
+  })
+
+  fastify.addHook("onResponse", async (request, reply) => {
+    if (typeof request.releaseConcurrencySlot === "function") {
+      request.releaseConcurrencySlot().catch((error) => {
+        request.log.error(error, "Erro ao liberar slot de concorrencia")
+      })
+    }
+  })
 
   fastify.setErrorHandler((error, request, reply) => {
     request.log.error(error)

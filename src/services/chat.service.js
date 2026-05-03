@@ -247,6 +247,10 @@ async function sendMessage({
     runtimePolicy.planType !== "free" &&
     runtimePolicy.planCode !== "free" &&
     runtimePolicy.planCode !== "free_trial"
+  const persistTurn = (payload) =>
+    shouldPersistHistory
+      ? persistConversationTurnIfNeeded(payload)
+      : Promise.resolve(false)
 
   const stripped = conservativeContextStrip(lastUserMessage.content)
 
@@ -386,7 +390,7 @@ async function sendMessage({
         }
       }
 
-      await persistConversationTurnIfNeeded({
+      await persistTurn({
         sessionId,
         userContent: lastUserMessage.content,
         assistantContent: JSON.stringify(memoryResponse),
@@ -497,7 +501,7 @@ async function sendMessage({
         }
       }
 
-      await persistConversationTurnIfNeeded({
+      await persistTurn({
         sessionId,
         userContent: lastUserMessage.content,
         assistantContent: JSON.stringify(localResponse),
@@ -575,7 +579,7 @@ async function sendMessage({
   if (dynamicIntent && !responseFormat && normalizedMessages.length <= 2) {
     const dynamicResponse = buildDynamicResponse(dynamicIntent)
 
-    await persistConversationTurnIfNeeded({
+    await persistTurn({
       sessionId,
       userContent: lastUserMessage.content,
       assistantContent: dynamicResponse,
@@ -660,7 +664,7 @@ async function sendMessage({
           ? cached.data.answer
           : JSON.stringify(cached.data.answer)
 
-      await persistConversationTurnIfNeeded({
+      await persistTurn({
         sessionId,
         userContent: lastUserMessage.content,
         assistantContent: cachedResponseContent,
@@ -728,7 +732,7 @@ async function sendMessage({
           ? semanticMatch.match.answer
           : JSON.stringify(semanticMatch.match.answer)
 
-      await persistConversationTurnIfNeeded({
+      await persistTurn({
         sessionId,
         userContent: lastUserMessage.content,
         assistantContent: semanticResponseContent,
@@ -905,7 +909,7 @@ async function sendMessage({
   debug.currency = estimatedCost.currency
   debug.pricingFound = estimatedCost.pricingFound
 
-  await persistConversationTurnIfNeeded({
+  await persistTurn({
     sessionId,
     userContent: lastUserMessage.content,
     assistantContent:

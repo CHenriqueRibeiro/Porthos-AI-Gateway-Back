@@ -4,10 +4,39 @@ const { concurrencyGuard } = require("../middleware/concurrency.middleware")
 const { attachGatewayKeyFromSessionBody } = require("../middleware/jwtSdkContext.middleware")
 const { normalizeMessages, getLastUserMessage } = require("../services/requestContext.service")
 
+const chatBodySchema = {
+  type: "object",
+  required: ["sessionId", "messages"],
+  additionalProperties: true,
+  properties: {
+    sessionId: { type: "string", minLength: 1 },
+    model: { type: "string", minLength: 1 },
+    messages: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        required: ["role", "content"],
+        additionalProperties: true,
+        properties: {
+          role: { type: "string", enum: ["system", "user", "assistant"] },
+          content: { type: "string", minLength: 1 }
+        }
+      }
+    },
+    temperature: { type: "number", minimum: 0, maximum: 2 },
+    max_tokens: { type: "integer", minimum: 1, maximum: 8192 },
+    debug: { type: "boolean" }
+  }
+}
+
 async function chatRoutes(fastify) {
   fastify.post(
     "/chat",
     {
+      schema: {
+        body: chatBodySchema
+      },
       preHandler: [
         attachGatewayKeyFromSessionBody,
         rateLimitByApiKey,
