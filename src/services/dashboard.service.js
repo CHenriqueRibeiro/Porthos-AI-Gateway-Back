@@ -219,6 +219,10 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
       acc.providerOutputTokens += item.llmOutputTokens || 0
       acc.providerTotalTokens += item.llmTotalTokens || 0
 
+      acc.cachedInputTokensAvoided += item.cacheReferenceInputTokens || 0
+      acc.cachedOutputTokensAvoided += item.cacheReferenceOutputTokens || 0
+      acc.cachedTotalTokensAvoided += item.cacheReferenceTotalTokens || 0
+
       acc.estimatedCostInput += item.estimatedCostInput || 0
       acc.estimatedCostOutput += item.estimatedCostOutput || 0
       acc.estimatedCostTotal += item.estimatedCostTotal || 0
@@ -238,6 +242,9 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
       providerInputTokens: 0,
       providerOutputTokens: 0,
       providerTotalTokens: 0,
+      cachedInputTokensAvoided: 0,
+      cachedOutputTokensAvoided: 0,
+      cachedTotalTokensAvoided: 0,
       estimatedCostInput: 0,
       estimatedCostOutput: 0,
       estimatedCostTotal: 0,
@@ -252,6 +259,12 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
   const requestsServedWithoutLlm =
     summaryRaw.fingerprintHits + summaryRaw.semanticHits + summaryRaw.localHits
 
+  const realInputTokensBeforeOptimization =
+    summaryRaw.providerInputTokens + summaryRaw.cachedInputTokensAvoided
+
+  const realOutputTokensReturnedByGateway =
+    summaryRaw.providerOutputTokens + summaryRaw.cachedOutputTokensAvoided
+
   const summary = {
     totalRequests: summaryRaw.totalRequests,
     requestsSentToLlm: summaryRaw.requestsSentToLlm,
@@ -262,11 +275,10 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
             ((requestsServedWithoutLlm / summaryRaw.totalRequests) * 100).toFixed(2)
           )
         : 0,
-    inputTokensBeforeOptimization: summaryRaw.inputTokensBeforeOptimization,
-    inputTokensSent: summaryRaw.inputTokensSent,
-    inputTokensSaved:
-      summaryRaw.inputTokensBeforeOptimization - summaryRaw.inputTokensSent,
-    outputTokensReturnedByGateway: summaryRaw.outputTokensReturnedByGateway,
+    inputTokensBeforeOptimization: realInputTokensBeforeOptimization,
+    inputTokensSent: summaryRaw.providerInputTokens,
+    inputTokensSaved: summaryRaw.cachedInputTokensAvoided,
+    outputTokensReturnedByGateway: realOutputTokensReturnedByGateway,
     providerInputTokens: summaryRaw.providerInputTokens,
     providerOutputTokens: summaryRaw.providerOutputTokens,
     providerTotalTokens: summaryRaw.providerTotalTokens,
@@ -343,16 +355,20 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
           providerInputTokens: 0,
           providerOutputTokens: 0,
           providerTotalTokens: 0,
+          cachedInputTokensAvoided: 0,
+          cachedOutputTokensAvoided: 0,
+          cachedTotalTokensAvoided: 0,
           estimatedCostTotal: 0
         }
       }
 
       dailyMap[dayKey].totalRequests += 1
-      dailyMap[dayKey].inputTokensBeforeOptimization += item.systemInputTokensOriginal || 0
-      dailyMap[dayKey].inputTokensSent += item.systemInputTokensOptimized || 0
       dailyMap[dayKey].providerInputTokens += item.llmInputTokens || 0
       dailyMap[dayKey].providerOutputTokens += item.llmOutputTokens || 0
       dailyMap[dayKey].providerTotalTokens += item.llmTotalTokens || 0
+      dailyMap[dayKey].cachedInputTokensAvoided += item.cacheReferenceInputTokens || 0
+      dailyMap[dayKey].cachedOutputTokensAvoided += item.cacheReferenceOutputTokens || 0
+      dailyMap[dayKey].cachedTotalTokensAvoided += item.cacheReferenceTotalTokens || 0
       dailyMap[dayKey].estimatedCostTotal += item.estimatedCostTotal || 0
 
       if (cacheType === "llm") {
@@ -364,7 +380,10 @@ async function getDashboardOverviewByUser(userId, filters = {}) {
 
     response.daily = Object.values(dailyMap).map((item) => ({
       ...item,
-      inputTokensSaved: item.inputTokensBeforeOptimization - item.inputTokensSent,
+      inputTokensBeforeOptimization:
+        item.providerInputTokens + item.cachedInputTokensAvoided,
+      inputTokensSent: item.providerInputTokens,
+      inputTokensSaved: item.cachedInputTokensAvoided,
       estimatedCostTotal: roundMoney(item.estimatedCostTotal)
     }))
   }

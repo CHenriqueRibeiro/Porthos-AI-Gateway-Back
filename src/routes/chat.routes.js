@@ -31,7 +31,8 @@ const chatBodySchema = {
     },
     temperature: { type: "number", minimum: 0, maximum: 2 },
     max_tokens: { type: "integer", minimum: 1, maximum: 8192 },
-    debug: { type: "boolean" }
+    debug: { type: "boolean" },
+    playground: { type: "boolean" }
   }
 }
 
@@ -66,7 +67,8 @@ async function chatRoutes(fastify) {
           messages = [],
           temperature = 0.2,
           max_tokens = 300,
-          debug = false
+          debug = false,
+          playground = false
         } = request.body || {}
 
         if (!sessionId) {
@@ -95,7 +97,8 @@ async function chatRoutes(fastify) {
           extractionProfile: "generic_document",
           routeType: "chat",
           workloadCategory,
-          includeDebug: debug === true
+          includeDebug: debug === true,
+          playground: playground === true
         })
 
         return reply.send(result)

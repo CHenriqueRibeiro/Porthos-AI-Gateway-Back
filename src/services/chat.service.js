@@ -132,6 +132,8 @@ async function saveTokenUsage({
   cacheType,
   llmInputTokens = 0,
   llmOutputTokens = 0,
+  cacheReferenceInputTokens = 0,
+  cacheReferenceOutputTokens = 0,
   provider = null,
   providerModel = null,
   keySource = null,
@@ -148,6 +150,9 @@ async function saveTokenUsage({
     typeof response === "string" ? response : JSON.stringify(response)
   const systemResponseTokens = estimateTokens(responseText)
   const llmTotalTokens = llmInputTokens + llmOutputTokens
+  const isServedWithoutLlm = cacheType && cacheType !== "llm"
+  const avoidedInputTokens = cacheReferenceInputTokens || (isServedWithoutLlm ? systemInputTokensOptimized : 0)
+  const avoidedOutputTokens = cacheReferenceOutputTokens || (isServedWithoutLlm ? systemResponseTokens : 0)
 
   await tokenUsageService.createTokenUsage({
     apiKeyId,
@@ -157,6 +162,9 @@ async function saveTokenUsage({
     llmInputTokens,
     llmOutputTokens,
     llmTotalTokens,
+    cacheReferenceInputTokens: avoidedInputTokens,
+    cacheReferenceOutputTokens: avoidedOutputTokens,
+    cacheReferenceTotalTokens: avoidedInputTokens + avoidedOutputTokens,
     estimatedCostInput,
     estimatedCostOutput,
     estimatedCostTotal,
@@ -210,12 +218,52 @@ function buildOpenAICompatibleResponse({
       provider: meta?.provider || null,
       providerModel: meta?.providerModel || null,
       keySource: meta?.keySource || null,
+      playgroundSimulation: meta?.playgroundSimulation || null,
       llmCalled: meta?.llmCalled || false,
       cacheLayer: meta?.cacheLayer || null,
       routeType: meta?.routeType || null,
       workloadCategory: meta?.workloadCategory || null,
       ...(meta?.debug ? { debug: meta.debug } : {})
     } } : {})
+  }
+}
+
+function buildPlaygroundSimulation({
+  originalContent,
+  optimizedContent,
+  llmInputTokens,
+  llmOutputTokens,
+  estimatedCostTotal,
+  cacheLayer = "semantic"
+}) {
+  const originalInputTokens = estimateTokens(originalContent)
+  const optimizedInputTokens = estimateTokens(optimizedContent)
+  const tokensSaved = Math.max(0, originalInputTokens - optimizedInputTokens)
+  const reductionRate =
+    originalInputTokens > 0
+      ? Number(((tokensSaved / originalInputTokens) * 100).toFixed(2))
+      : 0
+  const tokensAvoidedByCache = Math.max(0, llmInputTokens + llmOutputTokens)
+
+  return {
+    mode: "playground",
+    persisted: false,
+    cacheWritten: false,
+    metricsWritten: false,
+    prompt: {
+      originalInputTokens,
+      optimizedInputTokens,
+      tokensSaved,
+      reductionRate,
+      optimizedContent
+    },
+    cachePreview: {
+      layer: cacheLayer,
+      description:
+        "Em uma requisicao repetida ou semanticamente parecida, um plano com cache poderia evitar a chamada ao modelo.",
+      tokensAvoided: tokensAvoidedByCache,
+      estimatedCostAvoided: estimatedCostTotal || 0
+    }
   }
 }
 
@@ -230,7 +278,8 @@ async function sendMessage({
   extractionProfile = "generic_document",
   routeType = "chat",
   workloadCategory = "light",
-  includeDebug = false
+  includeDebug = false,
+  playground = false
 }) {
   const startedAt = Date.now()
 
@@ -245,6 +294,7 @@ async function sendMessage({
     await getRuntimePolicyForApiKey(apiKeyId)
 
   const shouldPersistHistory =
+    !playground &&
     runtimePolicy.planType !== "free" &&
     runtimePolicy.planCode !== "free" &&
     runtimePolicy.planCode !== "free_trial"
@@ -338,7 +388,8 @@ async function sendMessage({
     systemMessagesCount: normalizedMessages.filter((m) => m.role === "system").length,
     assistantMessagesCount: normalizedMessages.filter((m) => m.role === "assistant").length,
     routeType,
-    workloadCategory
+    workloadCategory,
+    playground
   }
 
   let session = await sessionService.expireSessionIfNeeded({
@@ -649,7 +700,7 @@ async function sendMessage({
   const redisCacheEnabled = runtimePolicy.cache?.redisEnabled === true
   const semanticCacheEnabled = runtimePolicy.cache?.semanticEnabled === true
 
-  if (scope === "global" && redisCacheEnabled) {
+  if (!playground && scope === "global" && redisCacheEnabled) {
     const cached = await fingerprintService.findCachedAnswer(
       apiKeyId,
       fingerprintCacheKey,
@@ -914,16 +965,27 @@ async function sendMessage({
   debug.estimatedCostTotal = estimatedCost.estimatedCostTotal
   debug.currency = estimatedCost.currency
   debug.pricingFound = estimatedCost.pricingFound
+  debug.playgroundSimulation = playground
+    ? buildPlaygroundSimulation({
+        originalContent: JSON.stringify(normalizedMessages),
+        optimizedContent,
+        llmInputTokens: llmResult.usage.inputTokens,
+        llmOutputTokens: llmResult.usage.outputTokens,
+        estimatedCostTotal: estimatedCost.estimatedCostTotal
+      })
+    : null
 
-  await persistTurn({
-    sessionId,
-    userContent: lastUserMessage.content,
-    assistantContent:
-      typeof response === "string" ? response : JSON.stringify(response),
-    shouldPersistHistory
-  })
+  if (!playground) {
+    await persistTurn({
+      sessionId,
+      userContent: lastUserMessage.content,
+      assistantContent:
+        typeof response === "string" ? response : JSON.stringify(response),
+      shouldPersistHistory
+    })
+  }
 
-  if (response && typeof response === "object" && response.data) {
+  if (!playground && response && typeof response === "object" && response.data) {
     await runSafe("upsertSessionFieldMemory llm structured", () =>
       upsertSessionFieldMemory({
         sessionId,
@@ -951,7 +1013,7 @@ async function sendMessage({
         maxItemsPerProfile: runtimePolicy.memory.maxItems
       })
     )
-  } else if (localExtraction?.data) {
+  } else if (!playground && localExtraction?.data) {
     await runSafe("upsertSessionFieldMemory partial local", () =>
       upsertSessionFieldMemory({
         sessionId,
@@ -964,7 +1026,7 @@ async function sendMessage({
     )
   }
 
-  if (scope === "global" && redisCacheEnabled) {
+  if (!playground && scope === "global" && redisCacheEnabled) {
     await runSafe("saveCachedAnswer llm", () =>
       fingerprintService.saveCachedAnswer(
         apiKeyId,
@@ -993,33 +1055,39 @@ async function sendMessage({
     }
   }
 
-  await sessionService.updateSessionActivity(sessionId)
+  if (!playground) {
+    await sessionService.updateSessionActivity(sessionId)
+  }
 
-  await runSafe("updateConversationSummary", () =>
-    memoryService.updateConversationSummary(sessionId)
-  )
+  if (!playground) {
+    await runSafe("updateConversationSummary", () =>
+      memoryService.updateConversationSummary(sessionId)
+    )
+  }
 
-  await runSafe("saveTokenUsage llm", () =>
-    saveTokenUsage({
-      apiKeyId,
-      originalContent: JSON.stringify(normalizedMessages),
-      optimizedContent,
-      response,
-      scope,
-      cacheType: "llm",
-      llmInputTokens: llmResult.usage.inputTokens,
-      llmOutputTokens: llmResult.usage.outputTokens,
-      provider: llmResult.provider,
-      providerModel: llmResult.providerModel,
-      keySource: "customer",
-      estimatedCostInput: estimatedCost.estimatedCostInput,
-      estimatedCostOutput: estimatedCost.estimatedCostOutput,
-      estimatedCostTotal: estimatedCost.estimatedCostTotal,
-      currency: estimatedCost.currency,
-      routeType,
-      workloadCategory
-    })
-  )
+  if (!playground) {
+    await runSafe("saveTokenUsage llm", () =>
+      saveTokenUsage({
+        apiKeyId,
+        originalContent: JSON.stringify(normalizedMessages),
+        optimizedContent,
+        response,
+        scope,
+        cacheType: "llm",
+        llmInputTokens: llmResult.usage.inputTokens,
+        llmOutputTokens: llmResult.usage.outputTokens,
+        provider: llmResult.provider,
+        providerModel: llmResult.providerModel,
+        keySource: "customer",
+        estimatedCostInput: estimatedCost.estimatedCostInput,
+        estimatedCostOutput: estimatedCost.estimatedCostOutput,
+        estimatedCostTotal: estimatedCost.estimatedCostTotal,
+        currency: estimatedCost.currency,
+        routeType,
+        workloadCategory
+      })
+    )
+  }
 
   const durationMs = Date.now() - startedAt
 
