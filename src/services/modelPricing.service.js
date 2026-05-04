@@ -70,8 +70,60 @@ async function listModelPricing() {
   })
 }
 
+function pricesAreEqual(a, b) {
+  return Math.abs(Number(a) - Number(b)) < 0.0000000001
+}
+
+async function syncModelPricing(items = []) {
+  const result = {
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    skipped: 0
+  }
+
+  for (const item of items) {
+    if (!item?.provider || !item?.model) {
+      result.skipped += 1
+      continue
+    }
+
+    const existing = await prisma.modelPricing.findUnique({
+      where: {
+        provider_model: {
+          provider: item.provider,
+          model: item.model
+        }
+      }
+    })
+
+    if (!existing) {
+      await upsertModelPricing(item)
+      result.created += 1
+      continue
+    }
+
+    const changed =
+      !pricesAreEqual(existing.inputPer1k, item.inputPer1k) ||
+      !pricesAreEqual(existing.outputPer1k, item.outputPer1k) ||
+      existing.currency !== (item.currency || "USD") ||
+      existing.isActive !== (item.isActive ?? true)
+
+    if (!changed) {
+      result.unchanged += 1
+      continue
+    }
+
+    await upsertModelPricing(item)
+    result.updated += 1
+  }
+
+  return result
+}
+
 module.exports = {
   upsertModelPricing,
   getModelPricing,
-  listModelPricing
+  listModelPricing,
+  syncModelPricing
 }

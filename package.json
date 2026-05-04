@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "seed:billing": "node src/scripts/seedBillingCatalog.js",
     "seed:pricing": "node src/scripts/seedPricing.js",
+    "sync:llm-prices": "node src/scripts/syncLlmPrices.js",
     "tenants:backfill": "node src/scripts/backfillTenants.js"
   },
   "keywords": [],
