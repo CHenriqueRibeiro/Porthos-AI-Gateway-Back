@@ -6,13 +6,19 @@ function normalizeMessages(messages = []) {
       (msg) =>
         msg &&
         typeof msg.role === "string" &&
-        typeof msg.content === "string" &&
+        (typeof msg.content === "string" || typeof msg.content === "object") &&
         ["system", "user", "assistant"].includes(msg.role)
     )
-    .map((msg) => ({
-      role: msg.role,
-      content: String(msg.content).trim()
-    }))
+    .map((msg) => {
+      let content = msg.content;
+      if (typeof content === "object") {
+        content = JSON.stringify(content);
+      }
+      return {
+        role: msg.role,
+        content: String(content).trim()
+      };
+    })
     .filter((msg) => msg.content.length > 0)
 }
 

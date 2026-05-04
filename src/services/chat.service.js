@@ -180,7 +180,8 @@ function buildOpenAICompatibleResponse({
   meta,
   llmInputTokens,
   llmOutputTokens,
-  llmTotalTokens
+  llmTotalTokens,
+  includeDebug
 }) {
   return {
     id: `chatcmpl-gateway-${Date.now()}`,
@@ -202,7 +203,7 @@ function buildOpenAICompatibleResponse({
       completion_tokens: llmOutputTokens,
       total_tokens: llmTotalTokens
     },
-    meta: {
+    ...(includeDebug ? { meta: {
       scope,
       cache,
       durationMs,
@@ -214,7 +215,7 @@ function buildOpenAICompatibleResponse({
       routeType: meta?.routeType || null,
       workloadCategory: meta?.workloadCategory || null,
       ...(meta?.debug ? { debug: meta.debug } : {})
-    }
+    } } : {})
   }
 }
 
@@ -296,7 +297,7 @@ async function sendMessage({
     redisHit: false,
     postgresHit: false,
     optimizerApplied: false,
-    originalContent: JSON.stringify(normalizedMessages),
+    originalContent: lastUserMessage.content,
     strippedContent: stripped.stripped,
     strippedChanged: stripped.changed,
     optimizedContent: null,
@@ -430,7 +431,8 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: includeDebug ? { ...debug, debug } : debug
+        meta: includeDebug ? { ...debug, debug } : debug,
+        includeDebug
       })
     }
 
@@ -569,7 +571,8 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: includeDebug ? { ...debug, debug } : debug
+        meta: includeDebug ? { ...debug, debug } : debug,
+        includeDebug
       })
     }
   }
@@ -636,7 +639,8 @@ async function sendMessage({
             ...debug,
             llmCalled: false,
             cacheLayer: "local"
-          }
+          },
+      includeDebug
     })
   }
 
@@ -706,7 +710,8 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: includeDebug ? { ...debug, debug } : debug
+        meta: includeDebug ? { ...debug, debug } : debug,
+        includeDebug
       })
     }
 
@@ -786,7 +791,8 @@ async function sendMessage({
         llmInputTokens: 0,
         llmOutputTokens: 0,
         llmTotalTokens: 0,
-        meta: includeDebug ? { ...debug, debug } : debug
+        meta: includeDebug ? { ...debug, debug } : debug,
+        includeDebug
       })
     }
   }
@@ -1026,7 +1032,8 @@ async function sendMessage({
     llmInputTokens: llmResult.usage.inputTokens,
     llmOutputTokens: llmResult.usage.outputTokens,
     llmTotalTokens: llmResult.usage.totalTokens,
-    meta: includeDebug ? { ...debug, debug } : debug
+    meta: includeDebug ? { ...debug, debug } : debug,
+    includeDebug
   })
 }
 

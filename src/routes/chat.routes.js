@@ -20,7 +20,12 @@ const chatBodySchema = {
         additionalProperties: true,
         properties: {
           role: { type: "string", enum: ["system", "user", "assistant"] },
-          content: { type: "string", minLength: 1 }
+          content: { 
+            oneOf: [
+              { type: "string", minLength: 1 },
+              { type: "object" }
+            ]
+          }
         }
       }
     },
