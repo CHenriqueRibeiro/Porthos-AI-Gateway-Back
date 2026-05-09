@@ -162,6 +162,32 @@ async function ensureTenantSchema(schemaName, db = prisma, options = {}) {
   `
 
   await db.$executeRaw`
+    CREATE TABLE IF NOT EXISTS ${schema}.processed_files (
+      id TEXT PRIMARY KEY,
+      api_key_id TEXT NOT NULL,
+      session_id TEXT REFERENCES ${schema}.sessions(id) ON DELETE SET NULL,
+      file_hash TEXT NOT NULL,
+      content_hash TEXT,
+      filename TEXT,
+      mime_type TEXT NOT NULL,
+      file_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      extracted_text TEXT,
+      block_hashes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'processed',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (api_key_id, file_hash)
+    )
+  `
+
+  await db.$executeRaw`
+    CREATE INDEX IF NOT EXISTS processed_files_api_key_content_idx
+    ON ${schema}.processed_files (api_key_id, content_hash)
+  `
+
+  await db.$executeRaw`
     CREATE TABLE IF NOT EXISTS ${schema}.token_usage (
       id TEXT PRIMARY KEY,
       api_key_id TEXT NOT NULL,
@@ -236,6 +262,34 @@ async function ensureTenantSchema(schemaName, db = prisma, options = {}) {
     CREATE INDEX IF NOT EXISTS cache_prompt_vector_hnsw_idx
     ON ${schema}.cache
     USING hnsw (prompt_vector vector_cosine_ops)
+  `
+
+  await db.$executeRaw`
+    CREATE TABLE IF NOT EXISTS ${schema}.document_chunks (
+      id TEXT PRIMARY KEY,
+      api_key_id TEXT NOT NULL,
+      processed_file_id TEXT NOT NULL REFERENCES ${schema}.processed_files(id) ON DELETE CASCADE,
+      content_hash TEXT NOT NULL,
+      block_hash TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      token_count INTEGER NOT NULL DEFAULT 0,
+      embedding vector(1536) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (api_key_id, processed_file_id, block_hash)
+    )
+  `
+
+  await db.$executeRaw`
+    CREATE INDEX IF NOT EXISTS document_chunks_api_key_content_idx
+    ON ${schema}.document_chunks (api_key_id, content_hash)
+  `
+
+  await db.$executeRaw`
+    CREATE INDEX IF NOT EXISTS document_chunks_embedding_hnsw_idx
+    ON ${schema}.document_chunks
+    USING hnsw (embedding vector_cosine_ops)
   `
 
   return {

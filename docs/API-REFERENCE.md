@@ -72,7 +72,42 @@ x-admin-secret: <ADMIN_MAINTENANCE_SECRET>
 
 `messages[].role`: `system`, `user`, `assistant`.
 
-`model` default: `openai/gpt-4o-mini`.
+`model` default: `auto`.
+
+`model` pode ser `auto`, `economy`, `balanced`, `quality` ou um modelo manual como `openai/gpt-4o-mini`.
+
+`attachments` opcional em `/chat` e `/extract`:
+
+```json
+[
+  {
+    "filename": "contrato.txt",
+    "mimeType": "text/plain",
+    "text": "Conteudo extraido do arquivo..."
+  }
+]
+```
+
+Tambem e aceito `extractedText` no lugar de `text`. Arquivos PDF, imagem e audio ja sao validados por tipo, mas nesta etapa precisam enviar `extractedText` para entrar no fluxo textual de cache e roteamento.
+
+Fluxo de armazenamento dos anexos:
+
+- Redis guarda apenas cache temporario de embeddings por hash.
+- Postgres guarda metadados do arquivo, hashes, texto extraido e blocos.
+- Postgres/pgvector guarda vetores dos blocos de texto para busca semantica futura.
+- Arquivo binario bruto nao e armazenado pelo fluxo atual.
+- Audio deve ser transcrito antes de entrar como `extractedText`.
+- Imagem/PDF escaneado precisa de OCR ou envio para modelo com visao em etapa futura.
+
+Limites por plano:
+
+| Plano | Anexos | Tipos | Vetor semantico |
+|---|---:|---|---|
+| `free` | 0 | bloqueado | nao |
+| `starter` | 1 arquivo ate 256 KB | texto/json/csv/markdown | nao |
+| `growth` | 3 arquivos ate 2 MB | texto/json/csv/markdown/pdf com texto extraido | ate 12 chunks por arquivo |
+| `pro` | 5 arquivos ate 8 MB | documentos + imagem/audio com texto extraido/transcricao | ate 24 chunks por arquivo |
+| `scale` | 10 arquivos ate 20 MB | documentos + imagem/audio com texto extraido/transcricao | ate 50 chunks por arquivo |
 
 `response_format` em `/extract`:
 

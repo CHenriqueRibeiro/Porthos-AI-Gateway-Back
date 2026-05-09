@@ -33,6 +33,14 @@ const chatBodySchema = {
         }
       }
     },
+    attachments: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: true
+      }
+    },
     temperature: { type: "number", minimum: 0, maximum: 2 },
     max_tokens: { type: "integer", minimum: 1, maximum: 8192 },
     debug: { type: "boolean" },
@@ -70,6 +78,7 @@ async function chatRoutes(fastify) {
           model = "auto",
           routingPreference = "balanced",
           messages = [],
+          attachments = [],
           temperature,
           max_tokens = 300,
           debug = false,
@@ -95,6 +104,7 @@ async function chatRoutes(fastify) {
           sessionId,
           apiKeyId: apiKeyRecord.id,
           messages: normalizedMessages,
+          attachments,
           model,
           routingPreference,
           temperature,
@@ -126,6 +136,16 @@ async function chatRoutes(fastify) {
         if (
           error.message === "Conteúdo excede o limite operacional do plano" ||
           error.message === "Schema excede o limite operacional do plano"
+        ) {
+          return reply.code(400).send({
+            error: error.message
+          })
+        }
+
+        if (
+          error.message.includes("Attachment") ||
+          error.message.includes("arquivo") ||
+          error.message.includes("anexos")
         ) {
           return reply.code(400).send({
             error: error.message

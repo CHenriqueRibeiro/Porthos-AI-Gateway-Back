@@ -147,6 +147,81 @@ function buildRateLimitPolicy(planCode = "free") {
   return map[planCode] || map.free
 }
 
+function buildAttachmentPolicy(planCode = "free") {
+  const textMimeTypes = [
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json"
+  ]
+  const documentMimeTypes = [
+    ...textMimeTypes,
+    "application/pdf"
+  ]
+  const multimodalPreparedMimeTypes = [
+    ...documentMimeTypes,
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/wav",
+    "audio/webm",
+    "audio/ogg",
+    "audio/m4a"
+  ]
+  const map = {
+    free: {
+      enabled: false,
+      vectorEnabled: false,
+      maxAttachments: 0,
+      maxBytesPerAttachment: 0,
+      maxTextCharsPerAttachment: 0,
+      maxVectorChunksPerAttachment: 0,
+      allowedMimeTypes: []
+    },
+    starter: {
+      enabled: true,
+      vectorEnabled: false,
+      maxAttachments: 1,
+      maxBytesPerAttachment: 256 * 1024,
+      maxTextCharsPerAttachment: 12000,
+      maxVectorChunksPerAttachment: 0,
+      allowedMimeTypes: textMimeTypes
+    },
+    growth: {
+      enabled: true,
+      vectorEnabled: true,
+      maxAttachments: 3,
+      maxBytesPerAttachment: 2 * 1024 * 1024,
+      maxTextCharsPerAttachment: 35000,
+      maxVectorChunksPerAttachment: 12,
+      allowedMimeTypes: documentMimeTypes
+    },
+    pro: {
+      enabled: true,
+      vectorEnabled: true,
+      maxAttachments: 5,
+      maxBytesPerAttachment: 8 * 1024 * 1024,
+      maxTextCharsPerAttachment: 50000,
+      maxVectorChunksPerAttachment: 24,
+      allowedMimeTypes: multimodalPreparedMimeTypes
+    },
+    scale: {
+      enabled: true,
+      vectorEnabled: true,
+      maxAttachments: 10,
+      maxBytesPerAttachment: 20 * 1024 * 1024,
+      maxTextCharsPerAttachment: 100000,
+      maxVectorChunksPerAttachment: 50,
+      allowedMimeTypes: multimodalPreparedMimeTypes
+    }
+  }
+
+  return map[planCode] || map.free
+}
+
 function resolveRuntimePolicy(effectiveConfig) {
   if (!effectiveConfig) {
     return {
@@ -176,6 +251,7 @@ function resolveRuntimePolicy(effectiveConfig) {
       storage: {
         storageMb: 50
       },
+      attachments: buildAttachmentPolicy("free"),
       limits: {
         ...buildOperationalLimits("free"),
         maxApiKeys: 1,
@@ -240,6 +316,7 @@ function resolveRuntimePolicy(effectiveConfig) {
     storage: {
       storageMb: storageConfig.storageMb || 50
     },
+    attachments: buildAttachmentPolicy(effectiveConfig.plan.code),
     limits: {
       ...buildOperationalLimits(effectiveConfig.plan.code),
       maxApiKeys: apiKeysConfig.maxApiKeys || 1,

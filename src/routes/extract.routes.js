@@ -31,6 +31,7 @@ async function extractRoutes(fastify) {
           model = "auto",
           routingPreference = "balanced",
           messages = [],
+          attachments = [],
           temperature,
           max_tokens = 300,
           response_format = null,
@@ -81,6 +82,7 @@ async function extractRoutes(fastify) {
           sessionId,
           apiKeyId: apiKeyRecord.id,
           messages: normalizedMessages,
+          attachments,
           model,
           routingPreference,
           temperature,
@@ -110,6 +112,16 @@ async function extractRoutes(fastify) {
         if (
           error.message === "Conteúdo excede o limite operacional do plano" ||
           error.message === "Schema excede o limite operacional do plano"
+        ) {
+          return reply.code(400).send({
+            error: error.message
+          })
+        }
+
+        if (
+          error.message.includes("Attachment") ||
+          error.message.includes("arquivo") ||
+          error.message.includes("anexos")
         ) {
           return reply.code(400).send({
             error: error.message
