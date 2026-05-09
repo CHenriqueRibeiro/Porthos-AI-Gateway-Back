@@ -1,6 +1,7 @@
 const messageService = require("./message.service")
 const providerKeyService = require("./providerKey.service")
 const llmRouterService = require("./llmRouter.service")
+const openaiModelRouter = require("./openaiModelRouter.service")
 const { estimateLlmCost } = require("./costEstimator.service")
 const { classifyScope } = require("./classifier.service")
 const fingerprintService = require("./fingerprint.service")
@@ -271,8 +272,9 @@ async function sendMessage({
   sessionId,
   apiKeyId,
   messages = [],
-  model = "openai/gpt-4o-mini",
-  temperature = 0.2,
+  model = "auto",
+  routingPreference = "balanced",
+  temperature,
   maxTokens = null,
   responseFormat = null,
   extractionProfile = "generic_document",
@@ -389,7 +391,14 @@ async function sendMessage({
     assistantMessagesCount: normalizedMessages.filter((m) => m.role === "assistant").length,
     routeType,
     workloadCategory,
-    playground
+    playground,
+    requestedModel: model,
+    routingPreference,
+    resolvedModel: null,
+    routingMode: "manual",
+    routingReason: null,
+    modelAutoSelected: false,
+    modelSupportsTemperature: true
   }
 
   let session = await sessionService.expireSessionIfNeeded({
@@ -872,7 +881,8 @@ async function sendMessage({
   debug.llmMessagesCount = llmMessages.length
   debug.llmCalled = true
 
-  const provider = llmRouterService.getProviderFromModel(model)
+  const initialProvider = llmRouterService.getProviderFromModel(model)
+  const provider = openaiModelRouter.isOpenAiModel(model) ? "openai" : initialProvider
   const customerProviderKey = await providerKeyService.getDefaultProviderKey(
     apiKeyId,
     provider
@@ -886,10 +896,37 @@ async function sendMessage({
     throw error
   }
 
+  let resolvedModel = model
+  let effectiveTemperature = temperature
+
+  if (provider === "openai") {
+    const routing = await openaiModelRouter.resolveOpenAiModel({
+      requestedModel: model,
+      routingPreference,
+      workloadCategory,
+      responseFormat,
+      temperature,
+      providerKey: customerProviderKey
+    })
+
+    resolvedModel = routing.model
+    debug.resolvedModel = routing.model
+    debug.routingMode = routing.routingMode
+    debug.routingReason = routing.routingReason || null
+    debug.modelAutoSelected = routing.autoSelected
+    debug.modelSupportsTemperature = routing.supportsTemperature
+    debug.openaiCatalogSize = routing.catalogSize || null
+    debug.openaiAccessibleCatalogSize = routing.accessibleCatalogSize || null
+
+    if (!routing.supportsTemperature) {
+      effectiveTemperature = null
+    }
+  }
+
   const llmResult = await llmRouterService.generateResponse({
-    model,
+    model: resolvedModel,
     messages: llmMessages,
-    temperature,
+    temperature: effectiveTemperature,
     maxTokens,
     responseFormat,
     apiKeyOverride: customerProviderKey.apiKey
@@ -1093,7 +1130,7 @@ async function sendMessage({
 
   return buildOpenAICompatibleResponse({
     response,
-    model,
+    model: resolvedModel,
     cache: null,
     scope,
     durationMs,

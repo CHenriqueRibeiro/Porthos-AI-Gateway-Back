@@ -1,4 +1,8 @@
 const OpenAI = require("openai")
+const {
+  supportsTemperature,
+  usesMaxCompletionTokens
+} = require("./openaiModelRouter.service")
 
 function createClient(apiKeyOverride = null) {
   const apiKey = apiKeyOverride || process.env.OPENAI_API_KEY
@@ -17,19 +21,27 @@ function normalizeModel(model = "openai/gpt-4o-mini") {
 function buildPayload({
   model,
   messages,
-  temperature = 0.2,
+  temperature,
   maxTokens = 300,
   responseFormat = null
 }) {
+  const normalizedModel = normalizeModel(model)
   const payload = {
-    model: normalizeModel(model),
-    messages,
-    temperature
+    model: normalizedModel,
+    messages
+  }
+
+  if (typeof temperature === "number" && supportsTemperature(normalizedModel)) {
+    payload.temperature = temperature
   }
 
   if (maxTokens) {
     // Mantém compatibilidade com Chat Completions atual
-    payload.max_tokens = maxTokens
+    if (usesMaxCompletionTokens(normalizedModel)) {
+      payload.max_completion_tokens = maxTokens
+    } else {
+      payload.max_tokens = maxTokens
+    }
   }
 
   if (responseFormat) {
@@ -74,7 +86,7 @@ function tryParseStructuredContent(content, responseFormat) {
 async function generateResponse({
   model = "openai/gpt-4o-mini",
   messages,
-  temperature = 0.2,
+  temperature,
   maxTokens = 300,
   responseFormat = null,
   apiKeyOverride = null

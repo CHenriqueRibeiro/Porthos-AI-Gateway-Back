@@ -28,9 +28,10 @@ async function extractRoutes(fastify) {
 
         const {
           sessionId,
-          model = "openai/gpt-4o-mini",
+          model = "auto",
+          routingPreference = "balanced",
           messages = [],
-          temperature = 0.2,
+          temperature,
           max_tokens = 300,
           response_format = null,
           extraction_profile = "generic_document"
@@ -81,6 +82,7 @@ async function extractRoutes(fastify) {
           apiKeyId: apiKeyRecord.id,
           messages: normalizedMessages,
           model,
+          routingPreference,
           temperature,
           maxTokens: max_tokens,
           responseFormat: response_format,
@@ -110,6 +112,12 @@ async function extractRoutes(fastify) {
           error.message === "Schema excede o limite operacional do plano"
         ) {
           return reply.code(400).send({
+            error: error.message
+          })
+        }
+
+        if (error.statusCode === 402 || error.statusCode === 403) {
+          return reply.code(error.statusCode).send({
             error: error.message
           })
         }

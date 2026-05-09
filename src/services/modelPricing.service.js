@@ -70,6 +70,20 @@ async function listModelPricing() {
   })
 }
 
+async function listActiveModelPricingByProvider(provider) {
+  return prisma.modelPricing.findMany({
+    where: {
+      provider,
+      isActive: true
+    },
+    orderBy: [
+      { inputPer1k: "asc" },
+      { outputPer1k: "asc" },
+      { model: "asc" }
+    ]
+  })
+}
+
 function pricesAreEqual(a, b) {
   return Math.abs(Number(a) - Number(b)) < 0.0000000001
 }
@@ -125,5 +139,6 @@ module.exports = {
   upsertModelPricing,
   getModelPricing,
   listModelPricing,
+  listActiveModelPricingByProvider,
   syncModelPricing
 }

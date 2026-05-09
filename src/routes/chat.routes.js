@@ -11,6 +11,10 @@ const chatBodySchema = {
   properties: {
     sessionId: { type: "string", minLength: 1 },
     model: { type: "string", minLength: 1 },
+    routingPreference: {
+      type: "string",
+      enum: ["auto", "economy", "balanced", "quality"]
+    },
     messages: {
       type: "array",
       minItems: 1,
@@ -63,9 +67,10 @@ async function chatRoutes(fastify) {
 
         const {
           sessionId,
-          model = "openai/gpt-4o-mini",
+          model = "auto",
+          routingPreference = "balanced",
           messages = [],
-          temperature = 0.2,
+          temperature,
           max_tokens = 300,
           debug = false,
           playground = false
@@ -91,6 +96,7 @@ async function chatRoutes(fastify) {
           apiKeyId: apiKeyRecord.id,
           messages: normalizedMessages,
           model,
+          routingPreference,
           temperature,
           maxTokens: max_tokens,
           responseFormat: null,
@@ -128,6 +134,12 @@ async function chatRoutes(fastify) {
 
         if (error.statusCode === 402) {
           return reply.code(402).send({
+            error: error.message
+          })
+        }
+
+        if (error.statusCode === 403) {
+          return reply.code(403).send({
             error: error.message
           })
         }
