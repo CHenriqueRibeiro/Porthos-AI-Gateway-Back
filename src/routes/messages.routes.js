@@ -54,43 +54,7 @@ async function messagesRoutes(fastify) {
     }
   })
 
-  fastify.get("/sessions/:id/messages", async (request, reply) => {
-    try {
-      const authUser = request.authUser
-
-      if (!authUser) {
-        return reply.code(401).send({
-          error: "Token de acesso obrigatório"
-        })
-      }
-
-      const { id } = request.params
-
-      const session = await sessionService.getSessionWithApiKeyForUser({
-        sessionId: id,
-        userId: authUser.id
-      })
-
-      if (!session) {
-        return reply.code(404).send({
-          error: "Sessão não encontrada"
-        })
-      }
-
-      const messages = await messageService.listMessagesBySession({
-        sessionId: id
-      })
-
-      return reply.send(messages)
-    } catch (error) {
-      request.log.error(error)
-
-      return reply.code(500).send({
-        error: "Erro ao listar mensagens",
-        details: error.message
-      })
-    }
-  })
+ 
 }
 
 module.exports = messagesRoutes

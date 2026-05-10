@@ -104,6 +104,28 @@ async function getSessionForApiKey({ sessionId, apiKeyId }) {
   return mapSession(rows[0])
 }
 
+
+async function createMessage({ sessionId, role, content, apiKeyId }) {
+  // Busca o schema dinâmico
+  const schema = schemaSql(await getTenantSchemaByApiKeyId(apiKeyId));
+  const id = crypto.randomUUID();
+
+  // Insere na tabela de mensagens do tenant
+  const rows = await prisma.$queryRaw`
+    INSERT INTO ${schema}.messages (id, session_id, role, content, created_at)
+    VALUES (${id}, ${sessionId}, ${role}, ${content}, NOW())
+    RETURNING id, session_id AS "sessionId", role, content, created_at AS "createdAt"
+  `;
+
+  // Atualiza a última atividade da sessão para evitar expiração por inatividade
+  await updateSessionActivity(sessionId);
+
+  return mapMessage(rows[0]);
+}
+
+// Não esqueça de adicionar no module.exports no final do arquivo:
+// module.exports = { ..., createMessage }
+
 async function getSessionWithApiKeyForUser({ sessionId, userId }) {
   const schemaName = await getTenantSchemaForUserSession({ sessionId, userId })
   if (!schemaName) return null
@@ -322,6 +344,24 @@ async function updateSessionSummary({ sessionId, summary }) {
   `
 }
 
+async function getMessagesBySessionId({ sessionId, apiKeyId }) {
+  const schema = schemaSql(await getTenantSchemaByApiKeyId(apiKeyId))
+
+  const messages = await prisma.$queryRaw`
+    SELECT
+      id,
+      session_id AS "sessionId",
+      role,
+      content,
+      created_at AS "createdAt"
+    FROM ${schema}.messages
+    WHERE session_id = ${sessionId}
+    ORDER BY created_at ASC
+  `
+
+  return messages.map(mapMessage)
+}
+
 async function getSessionSummary(sessionId) {
   const schemaName = await getTenantSchemaBySessionId(sessionId)
   if (!schemaName) return null
@@ -347,5 +387,7 @@ module.exports = {
   expireSessionIfNeeded,
   updateSessionActivity,
   updateSessionSummary,
-  getSessionSummary
+  getSessionSummary,
+  createMessage,
+  getMessagesBySessionId
 }

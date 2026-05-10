@@ -102,6 +102,50 @@ async function sessionsRoutes(fastify) {
     }
   })
 
+// Buscar apenas as mensagens de uma sessão específica
+  fastify.get("/sessions/:id/messages", async (request, reply) => {
+    try {
+      const authUser = request.authUser
+
+      if (!authUser) {
+        return reply.code(401).send({
+          error: "Token de acesso obrigatório"
+        })
+      }
+
+      const { id } = request.params
+
+      // 1. Validamos se a sessão pertence a uma API Key do usuário logado
+      const scoped = await sessionService.getSessionWithApiKeyForUser({
+        sessionId: id,
+        userId: authUser.id
+      })
+
+      if (!scoped) {
+        return reply.code(404).send({
+          error: "Sessão não encontrada ou acesso negado"
+        })
+      }
+
+      // 2. Buscamos a sessão completa (que já inclui o array de mensagens no seu service)
+      const sessionData = await sessionService.getSessionById({
+        sessionId: id,
+        apiKeyId: scoped.apiKeyId
+      })
+
+      // 3. Retornamos apenas o array de mensagens
+      return reply.send(sessionData.messages || [])
+      
+    } catch (error) {
+      request.log.error(error)
+
+      return reply.code(500).send({
+        error: "Erro ao buscar mensagens da sessão",
+        details: error.message
+      })
+    }
+  })
+
   fastify.get("/sessions/:id", async (request, reply) => {
     try {
       const authUser = request.authUser

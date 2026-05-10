@@ -401,13 +401,21 @@ async function sendMessage({
     modelSupportsTemperature: true
   }
 
-  let session = await sessionService.expireSessionIfNeeded({
-    sessionId,
-    apiKeyId
-  })
+  let session;
+  if (playground) {
+    // No playground, apenas verificamos se a sessão existe para validar o ID, 
+    // mas não rodamos lógica de expiração (que faz UPDATE/INSERT no banco)
+    session = await sessionService.getSessionForApiKey({ sessionId, apiKeyId });
+  } else {
+    // Em produção, rodamos a expiração que atualiza o status no banco se necessário
+    session = await sessionService.expireSessionIfNeeded({
+      sessionId,
+      apiKeyId
+    });
+  }
 
   if (!session) {
-    throw new Error("Sessão não encontrada")
+    throw new Error("Sessão não encontrada");
   }
 
   if (session.status === "closed") {
