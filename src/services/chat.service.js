@@ -43,10 +43,6 @@ const {
   buildConversationSignature,
   buildSystemSignature
 } = require("./requestContext.service")
-const {
-  processAttachments,
-  appendAttachmentContextToLastUserMessage
-} = require("./attachment.service")
 
 async function runSafe(label, fn) {
   try {
@@ -276,10 +272,9 @@ async function sendMessage({
   sessionId,
   apiKeyId,
   messages = [],
-  attachments = [],
   model = "auto",
   routingPreference = "balanced",
-  temperature,
+  temperature = 0.2,
   maxTokens = null,
   responseFormat = null,
   extractionProfile = "generic_document",
@@ -290,8 +285,8 @@ async function sendMessage({
 }) {
   const startedAt = Date.now()
 
-  let normalizedMessages = normalizeMessages(messages)
-  let lastUserMessage = getLastUserMessage(normalizedMessages)
+  const normalizedMessages = normalizeMessages(messages)
+  const lastUserMessage = getLastUserMessage(normalizedMessages)
 
   if (!lastUserMessage) {
     throw new Error("É necessário ao menos uma mensagem do usuário")
@@ -299,21 +294,6 @@ async function sendMessage({
 
   const { runtimePolicy, effectiveConfig } =
     await getRuntimePolicyForApiKey(apiKeyId)
-
-  const attachmentResult = await processAttachments({
-    apiKeyId,
-    sessionId,
-    attachments,
-    attachmentPolicy: runtimePolicy.attachments
-  })
-
-  if (attachmentResult.promptContext) {
-    normalizedMessages = appendAttachmentContextToLastUserMessage(
-      normalizedMessages,
-      attachmentResult.promptContext
-    )
-    lastUserMessage = getLastUserMessage(normalizedMessages)
-  }
 
   const shouldPersistHistory =
     !playground &&
@@ -412,28 +392,6 @@ async function sendMessage({
     routeType,
     workloadCategory,
     playground,
-    attachments: {
-      count: attachmentResult.items.length,
-      reusedCount: attachmentResult.reusedCount,
-      reusedBlockCount: attachmentResult.reusedBlockCount,
-      totalTextChars: attachmentResult.totalTextChars,
-      totalTokenEstimate: attachmentResult.totalTokenEstimate,
-      vectorChunkCount: attachmentResult.vectorChunkCount,
-      vectorSkippedCount: attachmentResult.vectorSkippedCount,
-      items: attachmentResult.items.map((item) => ({
-        filename: item.filename,
-        mimeType: item.mimeType,
-        fileType: item.fileType,
-        sizeBytes: item.sizeBytes,
-        contentHash: item.contentHash,
-        blockCount: item.blockCount,
-        reusedBlockCount: item.reusedBlockCount,
-        vectorChunkCount: item.vectorChunkCount,
-        vectorSkippedCount: item.vectorSkippedCount,
-        vectorAvailable: item.vectorAvailable,
-        reused: item.reused
-      }))
-    },
     requestedModel: model,
     routingPreference,
     resolvedModel: null,

@@ -54,14 +54,83 @@ function usesMaxCompletionTokens(model = "") {
   return /^(o\d|o\d-|o[1-9]|gpt-5)/.test(normalized)
 }
 
+/**
+ * RANK DE INTELIGÊNCIA - CONFIGURAÇÃO POR LISTA BRANCA
+ */
 function getModelFamilyRank(model = "") {
-  const normalized = normalizeModel(model).toLowerCase()
+  const normalized = normalizeModel(model).toLowerCase();
+  
+  // Modelos de Ultra Alta Performance (Quality)
+  const qualityModels = ["gpt-5", "gpt-5.2", "gpt-5.4"];
+  // Modelos de Raciocínio de Entrada (Balanced/Small Reasoning)
+  const smallReasoning = ["gpt-5-mini", "gpt-5-nano"];
 
-  if (normalized.includes("mini") || normalized.includes("nano")) return 1
-  if (normalized.includes("4o") || normalized.includes("4.1")) return 2
-  if (normalized.startsWith("o") || normalized.includes("gpt-5")) return 3
+  if (qualityModels.some(m => normalized === m || normalized === `openai/${m}`)) return 3;
+  if (smallReasoning.some(m => normalized.includes(m))) return 3;
 
-  return 2
+  // Modelos Rápidos e Diretos
+  if (normalized.includes("mini") || normalized.includes("nano")) return 1;
+  if (normalized.includes("4o") || normalized.includes("4.1")) return 2;
+  
+  return 2;
+}
+
+/**
+ * ESCOLHA DO CANDIDATO
+ */
+function chooseBestCandidate({
+  candidates,
+  mode,
+  workloadCategory,
+  responseFormat
+}) {
+  const targetRank = getTargetRank(mode, workloadCategory, responseFormat);
+  
+  // Filtro de Segurança: Apenas Chat + Modelos Permitidos
+  const pool = candidates.filter((item) => {
+    const normalized = normalizeModel(item.model).toLowerCase();
+    
+    // Se for da família 5, verificamos se está na sua lista permitida
+    if (normalized.includes("gpt-5")) {
+      const allowed = ["gpt-5", "gpt-5.2", "gpt-5.4", "gpt-5-mini", "gpt-5-nano"];
+      return allowed.some(m => normalized.includes(m)) && isChatModel(item.model);
+    }
+    
+    // Bloqueia modelos "o1", "o3", etc, a menos que você peça no futuro
+    if (normalized.startsWith("o1") || normalized.startsWith("o3")) return false;
+
+    return isChatModel(item.model);
+  });
+
+  if (mode === "quality") {
+    // No modo Quality, priorizamos os Pesos Pesados (5, 5.2, 5.4)
+    return [...pool].sort((a, b) => {
+      const rankA = getModelFamilyRank(a.model);
+      const rankB = getModelFamilyRank(b.model);
+      if (rankB !== rankA) return rankB - rankA;
+      
+      // Se ambos forem Rank 3, priorizamos a versão mais nova (5.4 > 5.2 > 5)
+      return b.model.localeCompare(a.model) || scorePrice(a) - scorePrice(b);
+    })[0];
+  }
+
+  if (mode === "economy") {
+    // Mantemos a trava: Economia usa modelos sem "imposto de pensamento" (Rank < 3)
+    const economyPool = pool.filter(item => getModelFamilyRank(item.model) < 3);
+    const finalPool = economyPool.length > 0 ? economyPool : pool;
+    return [...finalPool].sort((a, b) => scorePrice(a) - scorePrice(b))[0];
+  }
+
+  // Modo Balanced
+  return pool
+    .map((item) => ({
+      item,
+      rank: getModelFamilyRank(item.model),
+      price: scorePrice(item)
+    }))
+    .sort((a, b) =>
+      Math.abs(a.rank - targetRank) - Math.abs(b.rank - targetRank) || a.price - b.price
+    )[0]?.item || null;
 }
 
 function isChatModel(model = "") {
@@ -151,48 +220,7 @@ function isAccessible(modelIds, model) {
   return modelIds.has(normalized) || modelIds.has(withoutDate)
 }
 
-function chooseBestCandidate({
-  candidates,
-  mode,
-  workloadCategory,
-  responseFormat,
-  requireTemperature
-}) {
-  const targetRank = getTargetRank(mode, workloadCategory, responseFormat)
-  const chatCandidates = candidates.filter((item) => isChatModel(item.model))
-  const basePool = chatCandidates.length > 0 ? chatCandidates : candidates
-  const usable = basePool.filter((item) =>
-    !requireTemperature || supportsTemperature(item.model)
-  )
-  const pool = usable.length > 0 ? usable : basePool
 
-  if (mode === "quality") {
-    return [...pool].sort((a, b) =>
-      getModelFamilyRank(b.model) - getModelFamilyRank(a.model) ||
-      scorePrice(a) - scorePrice(b)
-    )[0]
-  }
-
-  if (
-    mode === "economy" ||
-    (targetRank === 1 && !responseFormat)
-  ) {
-    return [...pool].sort((a, b) => scorePrice(a) - scorePrice(b))[0]
-  }
-
-  const ranked = pool
-    .map((item) => ({
-      item,
-      rank: getModelFamilyRank(item.model),
-      price: scorePrice(item)
-    }))
-    .sort((a, b) =>
-      Math.abs(a.rank - targetRank) - Math.abs(b.rank - targetRank) ||
-      a.price - b.price
-    )
-
-  return ranked[0]?.item || null
-}
 
 async function resolveOpenAiModel({
   requestedModel,
